@@ -107,9 +107,13 @@ public sealed class SteamEnvironment(ProcessRunner processRunner)
         }
 
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var rimWorld = Path.Combine(home, "Library", "Application Support", "Steam", "steamapps", "common", "RimWorld");
         var candidates = new[]
         {
-            Path.Combine(home, "Library", "Application Support", "Steam", "steamapps", "common", "RimWorld", "RimWorldMac.app", "Contents", "PlugIns", "steam_api.bundle", "Contents", "MacOS", "libsteam_api.dylib")
+            // RimWorld 1.7 (.NET build) ships the library next to its executable.
+            Path.Combine(rimWorld, "RimWorld.app", "Contents", "MacOS", "libsteam_api.dylib"),
+            // RimWorld 1.6 and older (Unity build).
+            Path.Combine(rimWorld, "RimWorldMac.app", "Contents", "PlugIns", "steam_api.bundle", "Contents", "MacOS", "libsteam_api.dylib")
         };
 
         return candidates.FirstOrDefault(File.Exists);
