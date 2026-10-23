@@ -172,6 +172,7 @@ Publishes an already-built deployed mod folder through the same prepared-request
 `WorkshopPublishPrepared`
 
 Submits a still-valid prepared request through the detached helper. The request must live under the agent's run directory and its content fingerprint must still match.
+A request can run again only if its result file is missing or records a definitive failure before submission that allows fallback. The helper and the companion refuse every other result, including an unreadable one. In that case, read back the Workshop item. `verify` remains available.
 
 `WorkshopVerifyAfterPublish`
 
