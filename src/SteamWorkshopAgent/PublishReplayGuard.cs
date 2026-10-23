@@ -9,7 +9,7 @@ internal static class PublishReplayGuard
     internal static void EnsureCanSubmit(
         string? stage, bool submissionStarted, bool outcomeDefinitive, bool fallbackAllowed)
     {
-        if (string.IsNullOrWhiteSpace(stage) || submissionStarted
+        if (stage is null || string.IsNullOrWhiteSpace(stage) || submissionStarted
             || stage.StartsWith("submit-intent", StringComparison.OrdinalIgnoreCase)
             || stage.StartsWith("submitted", StringComparison.OrdinalIgnoreCase)
             || stage.StartsWith("ambiguous", StringComparison.OrdinalIgnoreCase)

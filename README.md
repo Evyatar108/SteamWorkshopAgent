@@ -84,6 +84,19 @@ dotnet build SteamWorkshopAgent.slnx -c Release
 dotnet test SteamWorkshopAgent.slnx
 ```
 
+Without game references, run the unit tests and the companion's shared-source
+compile check separately:
+
+```sh
+dotnet test tests/SteamWorkshopAgent.Tests/SteamWorkshopAgent.Tests.csproj -c Release
+dotnet build tests/SharedSources.Net472/SharedSources.Net472.csproj -c Release
+```
+
+The compile check reads every linked source from the companion project and
+builds it against net472 reference assemblies with nullable analysis and
+warnings as errors. It is also included in the solution. It does not load Steam
+or require game assemblies; the reference-assemblies package restores from NuGet.
+
 ## Local Install
 
 This workspace follows the same local MCP install pattern as the active `gabs` and `decompiler` servers: publish a stable native binary under `~/.codex/mcp-servers/<server-dir>/` and point Codex at that installed binary.

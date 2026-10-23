@@ -4,6 +4,7 @@
     <Project Path="src/SteamWorkshopAgent.BridgeTools/SteamWorkshopAgent.BridgeTools.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/SharedSources.Net472/SharedSources.Net472.csproj" />
     <Project Path="tests/SteamWorkshopAgent.Tests/SteamWorkshopAgent.Tests.csproj" />
   </Folder>
 </Solution>
