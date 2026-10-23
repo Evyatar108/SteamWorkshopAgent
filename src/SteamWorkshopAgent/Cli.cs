@@ -45,7 +45,8 @@ internal static class Cli
                     ulong.Parse(RequireOption(args, "--expect-id")),
                     RequireOption(args, "--changenote-file"),
                     HasFlag(args, "--confirm"),
-                    GetOption(args, "--backend") ?? "auto"),
+                    GetOption(args, "--backend") ?? "auto",
+                    GetOption(args, "--expect-digest")),
                 "new-mod" => await services.WorkshopPublisher.CreateNewModAsync(
                     RequireArg(args, 1, "modPath"),
                     HasFlag(args, "--confirm"),
@@ -198,7 +199,7 @@ internal static class Cli
               SteamWorkshopAgent plan <repoPath> <tag> [--update-description] [--changenote TEXT]
               SteamWorkshopAgent publish <repoPath> <tag> [--confirm] [--backend auto|standalone|steamcmd] [--steam-user USER] [--update-description] [--changenote TEXT]
               SteamWorkshopAgent publish-deployed <repoPath> <tag> <contentFolder> [--confirm] [--backend auto|standalone|steamcmd] [--steam-user USER] [--update-description] [--changenote TEXT]
-              SteamWorkshopAgent publish-folder <folder> --expect-id <id> --changenote-file <path> [--backend auto|standalone] [--confirm]
+              SteamWorkshopAgent publish-folder <folder> --expect-id <id> --changenote-file <path> [--backend auto|standalone] [--confirm --expect-digest <approved contentDigest>]
               SteamWorkshopAgent new-mod <modPath> [--confirm] [--steam-user USER] [--visibility private|friends|public|unlisted] [--changenote TEXT]
               SteamWorkshopAgent description-get <modPath|publishedFileId>
               SteamWorkshopAgent description <modPath|publishedFileId> <descriptionFile> [--confirm] [--steam-user USER] [--title TEXT] [--changenote TEXT]

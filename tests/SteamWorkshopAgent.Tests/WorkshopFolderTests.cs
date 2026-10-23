@@ -80,7 +80,7 @@ public sealed class WorkshopFolderTests
         var before = await WorkshopPublishRequestStore.ComputeContentDigestAsync(mod.Root);
         var result = await new ProcessRunner().RunAsync("dotnet",
             [typeof(Program).Assembly.Location, "publish-folder", mod.Root,
-                "--expect-id", "123456789", "--changenote-file", note, "--confirm"],
+                "--expect-id", "123456789", "--changenote-file", note, "--confirm", "--expect-digest", before],
             environment: new Dictionary<string, string>
             {
                 ["STEAM_WORKSHOP_AGENT_DATA_ROOT"] = mod.Root,

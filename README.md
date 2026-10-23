@@ -181,9 +181,25 @@ dotnet .\src\SteamWorkshopAgent\bin\Release\net10.0\SteamWorkshopAgent.dll publi
 
 Without `--confirm`, this only reads local files and prints the title from
 `About/About.xml`, item id, file count, SHA-256 content digest, preview size and
-exact change-note text. It sends nothing to Steam and writes nothing. Add
-`--confirm --backend standalone` (or `auto`) to use the existing owner/app-checked,
-fingerprinted prepared-request path. Missing, zero or mismatching
+exact change-note text. It sends nothing to Steam and writes nothing. To confirm:
+
+```powershell
+dotnet .\src\SteamWorkshopAgent\bin\Release\net10.0\SteamWorkshopAgent.dll publish-folder `
+  'C:\mods\StagedMod' --expect-id 123456789 --changenote-file 'C:\notes\release.txt' `
+  --confirm --expect-digest '<contentDigest from the approved dry run>' --backend standalone
+```
+
+Use backend `standalone` or `auto`. For MCP, supply the same digest in
+`WorkshopPublishFolder`'s `expectDigest` parameter when `confirm=true`.
+Confirmation requires a valid 64-character
+SHA-256 hexadecimal digest. The agent checks the folder against that approved
+digest before the creator lookup, checks it again after the lookup when preparing
+the request, and records that digest for the parent/helper's existing content
+checks. A change during an external details-command wait is refused rather than
+silently approved. Review a new dry run before approving changed bytes.
+
+The existing owner/app-checked, fingerprinted prepared-request path is reused.
+Missing, zero or mismatching
 `About/PublishedFileId.txt`, missing `About/About.xml`, invalid content or an
 empty change-note file is refused. The note gets no heading or prefix.
 Description, visibility and tags are untouched; `About/Preview.png` is uploaded

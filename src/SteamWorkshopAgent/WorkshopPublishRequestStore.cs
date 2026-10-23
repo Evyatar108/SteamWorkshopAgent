@@ -16,13 +16,15 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
 
     public async Task<WorkshopPublishPreparation> CreateAsync(
         WorkshopReleasePlan plan,
-        ulong expectedCreatorSteamId)
+        ulong expectedCreatorSteamId,
+        string? expectedDigest = null)
     {
         if (plan.Mod.PublishedFileId is not { } publishedFileId || publishedFileId == 0)
             throw new InvalidOperationException("A nonzero Workshop published file id is required.");
         if (expectedCreatorSteamId == 0)
             throw new InvalidOperationException("The current Workshop item creator could not be verified.");
 
+        var contentDigest = await ComputeContentDigestAsync(plan.ContentFolder, expectedDigest);
         Directory.CreateDirectory(plan.RunDirectory);
         var requestId = Guid.NewGuid().ToString("N");
         var requestPath = Path.Combine(plan.RunDirectory, "steamworks-request.json");
@@ -47,7 +49,7 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
             plan.Release is { } release
                 ? await ResolveCommitAsync(plan.Mod.RepoPath, release.TagName)
                 : "not-applicable",
-            await ComputeContentDigestAsync(plan.ContentFolder),
+            contentDigest,
             resultPath);
 
         await WriteOwnerOnlyJsonAsync(requestPath, request);
@@ -170,8 +172,17 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
         await WriteOwnerOnlyJsonAsync(path, result);
     }
 
-    internal static async Task<string> ComputeContentDigestAsync(string contentFolder)
+    internal static string ParseContentDigest(string value)
     {
+        if (value.Length != 64 || value.Any(character => !char.IsAsciiHexDigit(character)))
+            throw new ArgumentException("--expect-digest must be a 64-character SHA-256 hexadecimal digest from the approved dry run.");
+        return value.ToLowerInvariant();
+    }
+
+    internal static async Task<string> ComputeContentDigestAsync(
+        string contentFolder, string? expectedDigest = null)
+    {
+        var approvedDigest = expectedDigest == null ? null : ParseContentDigest(expectedDigest);
         var root = Path.GetFullPath(contentFolder);
         if (!Directory.Exists(root))
             throw new DirectoryNotFoundException($"Workshop content folder does not exist: {root}");
@@ -191,7 +202,11 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
                 aggregate.AppendData(buffer.AsSpan(0, read));
         }
 
-        return Convert.ToHexString(aggregate.GetHashAndReset()).ToLowerInvariant();
+        var digest = Convert.ToHexString(aggregate.GetHashAndReset()).ToLowerInvariant();
+        if (approvedDigest != null && !string.Equals(digest, approvedDigest, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "Workshop content does not match the approved digest. Run publish-folder without --confirm and review the new plan.");
+        return approvedDigest ?? digest;
     }
 
     private async Task<string> ResolveCommitAsync(string repoPath, string tag)
