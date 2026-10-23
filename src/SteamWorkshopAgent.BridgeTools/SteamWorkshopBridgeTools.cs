@@ -80,16 +80,16 @@ public sealed class SteamWorkshopBridgeTools
             var request = await ReadAndValidateRequestAsync(requestPath, requestId).ConfigureAwait(false);
             var session = await ctx.MainThread.InvokeAsync(ReadSession, cancellationToken).ConfigureAwait(false);
             if (!session.LoggedOn)
-                return await PersistAsync(request, Failure(requestPath, request, "session", false, session,
+                return await PersistAsync(claim, request, Failure(requestPath, request, "session", false, session,
                     NotLoggedOnMessage("RimWorld's initialized Steamworks session"), stopwatch.ElapsedMilliseconds,
                     failureCode: DesktopSessionOffline,
                     recoveryAction: RestartSteam)).ConfigureAwait(false);
             if (session.SteamId != request.ExpectedCreatorSteamId)
-                return await PersistAsync(request, Failure(requestPath, request, "ownership", false, session,
+                return await PersistAsync(claim, request, Failure(requestPath, request, "ownership", false, session,
                     $"Refusing to publish as Steam account {session.SteamId}; Workshop item creator is {request.ExpectedCreatorSteamId}.",
                     stopwatch.ElapsedMilliseconds, fallbackAllowed: false)).ConfigureAwait(false);
             if (session.AppId != request.AppId)
-                return await PersistAsync(request, Failure(requestPath, request, "app-id", false, session,
+                return await PersistAsync(claim, request, Failure(requestPath, request, "app-id", false, session,
                     $"Refusing to publish through unexpected Steam app id {session.AppId}.", stopwatch.ElapsedMilliseconds)).ConfigureAwait(false);
 
             UGCUpdateHandle_t updateHandle = UGCUpdateHandle_t.Invalid;
@@ -120,11 +120,11 @@ public sealed class SteamWorkshopBridgeTools
             if (setupFailure != null)
             {
                 callResult?.Dispose();
-                return await PersistAsync(request, Failure(requestPath, request, "setup", false, session,
+                return await PersistAsync(claim, request, Failure(requestPath, request, "setup", false, session,
                     setupFailure + " No submission was started.", stopwatch.ElapsedMilliseconds)).ConfigureAwait(false);
             }
 
-            await PersistAsync(request, Uncertain(
+            await PersistAsync(claim, request, Uncertain(
                 requestPath, request, "submit-intent", false, session, stopwatch.ElapsedMilliseconds,
                 "SubmitItemUpdate is about to be called. Automatic fallback is disabled until a definitive result is persisted.")).ConfigureAwait(false);
 
@@ -142,11 +142,11 @@ public sealed class SteamWorkshopBridgeTools
             if (submitFailure != null)
             {
                 callResult?.Dispose();
-                return await PersistAsync(request, Failure(requestPath, request, "submit", false, session,
+                return await PersistAsync(claim, request, Failure(requestPath, request, "submit", false, session,
                     submitFailure + " No submission was started.", stopwatch.ElapsedMilliseconds)).ConfigureAwait(false);
             }
 
-            await PersistAsync(request, Uncertain(
+            await PersistAsync(claim, request, Uncertain(
                 requestPath, request, "submitted", true, session, stopwatch.ElapsedMilliseconds,
                 "SubmitItemUpdate returned a valid API call handle. Verify state and never fall back automatically unless a definitive result replaces this marker.")).ConfigureAwait(false);
 
@@ -162,7 +162,7 @@ public sealed class SteamWorkshopBridgeTools
 
                 if (!callbackCompletion.Task.IsCompleted)
                 {
-                    return await PersistAsync(request, new PublishResult
+                    return await PersistAsync(claim, request, new PublishResult
                     {
                         Backend = "rimworld-steamworks",
                         Stage = "callback-timeout",
@@ -189,7 +189,7 @@ public sealed class SteamWorkshopBridgeTools
                 var completion = await callbackCompletion.Task.ConfigureAwait(false);
                 progress = await ctx.MainThread.InvokeAsync(() => ReadProgress(updateHandle), CancellationToken.None).ConfigureAwait(false);
                 var success = !completion.IoFailure && completion.Result.m_eResult == EResult.k_EResultOK;
-                return await PersistAsync(request, new PublishResult
+                return await PersistAsync(claim, request, new PublishResult
                 {
                     Backend = "rimworld-steamworks",
                     Stage = "completed",
@@ -280,8 +280,8 @@ public sealed class SteamWorkshopBridgeTools
                     exception);
             }
             PublishReplayGuard.EnsureCanSubmit(
-                previous?.Stage, previous?.SubmissionStarted ?? false,
-                previous?.OutcomeDefinitive ?? false, previous?.FallbackAllowed ?? false);
+                previous?.Stage, previous?.Success ?? false,
+                previous?.SubmissionStarted ?? false, previous?.OutcomeDefinitive ?? false);
         }
 
         var digest = await ComputeContentDigestAsync(request.ContentFolder).ConfigureAwait(false);
@@ -325,22 +325,35 @@ public sealed class SteamWorkshopBridgeTools
         }
     }
 
-    private static Task<PublishResult> PersistAsync(PublishRequest request, PublishResult result)
+    private static async Task<PublishResult> PersistAsync(
+        PublishRequestClaim claim, PublishRequest request, PublishResult result)
     {
-        if (result.FallbackAllowed)
+        if (result.FallbackAllowed && !PublishReplayGuard.IsProvenPreSubmitFailure(
+                result.Stage, result.Success, result.SubmissionStarted, result.OutcomeDefinitive))
         {
             result.FallbackAllowed = false;
-            result.Message += " This attempt holds a durable claim. Read back the Workshop item before any recovery.";
+            result.Message += " The outcome does not prove submission never started. Read back the Workshop item.";
         }
         var settings = new JsonSerializerSettings
         {
             ContractResolver = new CamelCasePropertyNamesContractResolver(),
             NullValueHandling = NullValueHandling.Ignore
         };
-        File.WriteAllText(request.ResultPath, JsonConvert.SerializeObject(result, settings));
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            chmod(request.ResultPath, Convert.ToUInt32("600", 8));
-        return Task.FromResult(result);
+        await claim.PersistResultAsync(result.Stage, result.Success, result.SubmissionStarted,
+            result.OutcomeDefinitive, () =>
+            {
+                using (var stream = new FileStream(request.ResultPath, FileMode.Create, FileAccess.Write, FileShare.Read))
+                using (var writer = new StreamWriter(stream, new UTF8Encoding(false), 1024, leaveOpen: true))
+                {
+                    writer.Write(JsonConvert.SerializeObject(result, settings));
+                    writer.Flush();
+                    stream.Flush(flushToDisk: true);
+                }
+                if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                    chmod(request.ResultPath, Convert.ToUInt32("600", 8));
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+        return result;
     }
 
     private static PublishResult Failure(

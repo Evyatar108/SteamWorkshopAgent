@@ -192,11 +192,16 @@ fails closed. Only a proven pre-submission failure remains eligible for fallback
 Every standalone helper and companion attempt first creates an exclusive,
 per-request `steamworks-request.json.claim` file with its PID and UTC time.
 Atomic `CreateNew` prevents competing processes from both reaching validation
-and submission. The claim is held through result persistence and remains after
-completion, validation failure or a crash. It never expires or gets deleted
-automatically. An existing claim means refuse and read back the Workshop item.
-Fallback is only possible before a native submitter has claimed the request;
-once claimed, even a pre-submit failure does not authorize reuse or fallback.
+and submission. A known, definitive pre-submit failure with
+`submissionStarted=false` preserves the backend's `fallbackAllowed` value.
+The holder writes and flushes that result to disk before releasing its claim,
+so the companion or a later submitter can claim and revalidate the same request.
+For example, failed standalone Steam initialization can hand the unchanged
+content to the authenticated companion. An ownership failure still returns
+`fallbackAllowed=false`.
+Submit intent, submitted, ambiguous, completed, validation failure, an exception,
+a timeout or an unknown stage keeps the claim. It never expires by age or PID.
+An existing claim means refuse and read back the Workshop item.
 
 `WorkshopVerifyAfterPublish`
 
@@ -235,7 +240,7 @@ The preferred publish path is intentionally conservative:
 5. Record the current Workshop creator id and a deterministic digest of every staged content path and byte.
 6. Start a detached helper session with `setsid()`, verify app id and Steam account ownership, and apply title, optional description, preview, and content before `SubmitItemUpdate`.
 7. Persist a no-fallback `submit-intent` marker before calling `SubmitItemUpdate`, then a `submitted` marker after receiving a valid API call handle. This survives helper crashes and terminal disconnects.
-8. Allow a fallback only before the durable intent marker exists. Once submission may have started, a timeout or exception is ambiguous and automatic retry is forbidden.
+8. Allow fallback only for a known, definitive pre-submit failure after its result is flushed and the holder releases its claim. An intent marker or any possible submission blocks fallback; a timeout or exception never releases the claim.
 9. Persist `steamworks-result.json` with owner-only permissions and verify public Workshop state.
 
 The release tag must exist locally so Git can create the detached worktree. If the agent reports that the tag cannot be resolved, run `git fetch --tags` in the mod repository and retry.

@@ -94,6 +94,19 @@ Costs:
 
 Steam may initialize a standalone helper without authenticating it as a logged-on user. In that pre-submit state, use the companion DLL in the running RimWorld process. RimWorld owns Steam initialization and callback pumping; the companion only invokes `ISteamUGC` on the main thread.
 
+Both submitters acquire the same per-request exclusive claim before validation.
+A known pre-submit failure with `success=false`, `submissionStarted=false` and
+`outcomeDefinitive=true` can hand the request back. The holder first persists and
+flushes the final result, preserving the backend's `fallbackAllowed` value, then
+releases its claim. The next submitter acquires a new claim and revalidates the
+receipt and content. For example, a standalone `steam-init` failure can fall
+back to the companion without rebuilding or changing the approved content.
+
+Claims remain after submit intent, submission, ambiguity, completion, an
+exception, a timeout or a failed result write. A crash after writing a pre-submit
+receipt but before hand-back also leaves the claim in place. Never reclaim a
+claim by age or PID; refuse and read back the item instead.
+
 The GABS profile `rimworld-workshop-headless` uses an isolated save-data directory and only Core, Harmony, and RimBridgeServer. Its isolated `Config/Prefs.xml` sets `volumeMaster` to `0`, so background publishing cannot play game audio or change the player's normal sound settings. It uses `-batchmode` without `-nographics`: live validation showed that `-nographics` connects the bridge but triggers a continuous RimWorld texture-atlas exception loop. A normal visible RimWorld launch is the final Steamworks fallback. SteamCMD is separate and manual.
 
 ## Read And Stats Backend

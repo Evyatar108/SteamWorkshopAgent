@@ -138,8 +138,8 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
                 exception);
         }
         PublishReplayGuard.EnsureCanSubmit(
-            result?.Stage, result?.SubmissionStarted ?? false,
-            result?.OutcomeDefinitive ?? false, result?.FallbackAllowed ?? false);
+            result?.Stage, result?.Success ?? false,
+            result?.SubmissionStarted ?? false, result?.OutcomeDefinitive ?? false);
     }
 
     public async Task<WorkshopPublishRequest> ReadForVerificationAsync(string requestPath)
@@ -207,7 +207,11 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
     private static async Task WriteOwnerOnlyJsonAsync<T>(string path, T value)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(value, ToolJson.Options));
+        using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read,
+            4096, FileOptions.Asynchronous);
+        await JsonSerializer.SerializeAsync(stream, value, ToolJson.Options);
+        await stream.FlushAsync();
+        stream.Flush(flushToDisk: true);
         if (!OperatingSystem.IsWindows())
             File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }

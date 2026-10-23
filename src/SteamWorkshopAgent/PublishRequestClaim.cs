@@ -3,16 +3,22 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace SteamWorkshopAgent;
 
 // Atomic filesystem ownership, shared by standalone helpers and the companion.
-// A closed or crashed attempt deliberately leaves its claim behind.
+// Only a persisted, proven pre-submit failure hands ownership back.
 internal sealed class PublishRequestClaim : IDisposable
 {
     private readonly FileStream stream;
+    private readonly string path;
 
-    private PublishRequestClaim(FileStream stream) => this.stream = stream;
+    private PublishRequestClaim(FileStream stream, string path)
+    {
+        this.stream = stream;
+        this.path = path;
+    }
 
     internal static string ClaimPath(string requestPath) => Path.GetFullPath(requestPath) + ".claim";
 
@@ -52,7 +58,7 @@ internal sealed class PublishRequestClaim : IDisposable
                 $"pid={Process.GetCurrentProcess().Id}\ncreatedAtUtc={DateTimeOffset.UtcNow:O}\n");
             claim.Write(metadata, 0, metadata.Length);
             claim.Flush(flushToDisk: true);
-            return new PublishRequestClaim(claim);
+            return new PublishRequestClaim(claim, ClaimPath(fullPath));
         }
         catch
         {
@@ -61,9 +67,25 @@ internal sealed class PublishRequestClaim : IDisposable
         }
     }
 
+    internal async Task PersistResultAsync(
+        string? stage, bool success, bool submissionStarted, bool outcomeDefinitive,
+        Func<Task> persist)
+    {
+        if (!stream.CanWrite)
+            throw new InvalidOperationException("This publish claim is no longer held.");
+        await persist().ConfigureAwait(false);
+        if (PublishReplayGuard.IsProvenPreSubmitFailure(stage, success, submissionStarted, outcomeDefinitive))
+        {
+            // Closing is necessary before deletion on Windows. Until deletion,
+            // CreateNew still refuses competitors. Never delete again on Dispose.
+            stream.Dispose();
+            File.Delete(path);
+        }
+    }
+
     private static InvalidOperationException Refusal(Exception? inner = null) => new(
         "This publish request is already claimed or cannot be claimed safely. " +
         "Read back the Workshop item instead of submitting again. Claims never expire automatically.", inner);
 
-    public void Dispose() => stream.Dispose(); // Never delete the durable claim.
+    public void Dispose() => stream.Dispose(); // An incomplete/uncertain attempt keeps its claim.
 }
