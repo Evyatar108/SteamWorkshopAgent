@@ -72,12 +72,32 @@ public sealed class WorkshopFolderTests
     }
 
     [Fact]
+    public async Task Cli_Refuses_Data_Root_Inside_Content_Before_Confirmed_Publishing()
+    {
+        using var mod = TestModRepo.CreateDeployed(includePublishedFileId: true);
+        var note = Path.Combine(mod.Root, "note.txt");
+        File.WriteAllText(note, "Update");
+        var before = await WorkshopPublishRequestStore.ComputeContentDigestAsync(mod.Root);
+        var result = await new ProcessRunner().RunAsync("dotnet",
+            [typeof(Program).Assembly.Location, "publish-folder", mod.Root,
+                "--expect-id", "123456789", "--changenote-file", note, "--confirm"],
+            environment: new Dictionary<string, string>
+            {
+                ["STEAM_WORKSHOP_AGENT_DATA_ROOT"] = mod.Root,
+                ["STEAM_WORKSHOP_AGENT_DETAILS_COMMAND"] = """["must-not-run"]"""
+            });
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("data root must be outside", result.Stderr);
+        Assert.Equal(before, await WorkshopPublishRequestStore.ComputeContentDigestAsync(mod.Root));
+    }
+
+    [Fact]
     public async Task Cli_DryRun_Prints_Only_Plan_And_Writes_Nothing()
     {
         using var mod = TestModRepo.CreateDeployed(includePublishedFileId: true);
         var note = Path.Combine(mod.Root, "note.txt");
         File.WriteAllText(note, "[b]2.1.0[/b]\r\nExact text.\n");
-        var dataRoot = Path.Combine(mod.Root, "app-data");
+        var dataRoot = mod.Root + "-app-data";
         var before = await WorkshopPublishRequestStore.ComputeContentDigestAsync(mod.Root);
         var runner = new ProcessRunner();
         var result = await runner.RunAsync("dotnet",

@@ -193,6 +193,8 @@ Run records normally live in the platform's application-data directory. Set
 `STEAM_WORKSHOP_AGENT_DATA_ROOT` to an absolute path to isolate all agent run
 records and helper data (for example in a temporary directory for offline tests).
 Use the same setting in a companion process when using that fallback.
+Folder publishing refuses a data root inside the upload folder, so run records
+cannot become part of the staged payload.
 
 `WorkshopPublishPrepared`
 

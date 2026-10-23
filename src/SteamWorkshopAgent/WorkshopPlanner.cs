@@ -31,6 +31,10 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
             throw new InvalidOperationException("The change-note file must not be empty.");
 
         var runDir = AgentPaths.NewRunDirectory(mod.ModFileName, $"folder-{Guid.NewGuid():N}");
+        var contentRoot = Path.TrimEndingDirectorySeparator(mod.RepoPath) + Path.DirectorySeparatorChar;
+        if (Path.GetFullPath(runDir).StartsWith(contentRoot, AgentDataPath.PathComparison))
+            throw new InvalidOperationException(
+                "The agent data root must be outside the content folder. Choose a different STEAM_WORKSHOP_AGENT_DATA_ROOT.");
         var previewFile = Path.Combine(mod.RepoPath, "About", "Preview.png");
         var fields = CreateVdfFields(mod, changeNote, mod.RepoPath, previewFile, updateDescription: false);
         var issues = Validation.ValidateForWorkshop(mod, previewFile, mod.RepoPath);
