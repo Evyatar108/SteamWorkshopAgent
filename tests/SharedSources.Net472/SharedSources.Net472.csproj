@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+  <Target Name="IncludeCompanionSharedSources" BeforeTargets="CoreCompile">
+    <!-- Read the companion's linked sources so new shared files cannot bypass this check. -->
+    <XmlPeek XmlInputPath="$(MSBuildThisFileDirectory)../../src/SteamWorkshopAgent.BridgeTools/SteamWorkshopAgent.BridgeTools.csproj"
+             Query="/Project/ItemGroup/Compile/@Include">
+      <Output TaskParameter="Result" ItemName="CompanionSharedSource" />
+    </XmlPeek>
+    <ItemGroup>
+      <Compile Include="@(CompanionSharedSource->'$(MSBuildThisFileDirectory)../../src/SteamWorkshopAgent.BridgeTools/%(Identity)')" />
+    </ItemGroup>
+    <Error Condition="'@(CompanionSharedSource)' == ''" Text="The companion shared-source list must not be empty." />
+  </Target>
+</Project>
