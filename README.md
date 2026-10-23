@@ -67,6 +67,9 @@ That token is used only by the explicit SteamCMD fallback. Never pass passwords 
 
 Routine updates preserve the Workshop item's existing category tags. The separate tag maintenance tool calls RimWorld's local Steamworks UGC path, using RimWorld app id `294100` and the native Steam API library bundled with the installed RimWorld app. It requires the desktop Steam client session to be logged on from Steamworks' point of view.
 
+Native create/submit callbacks use Steamworks' 8-byte packing on Windows and
+4-byte packing on macOS/Linux; publisher and tag updates share the same decoder.
+
 ## Build And Test
 
 ```sh
