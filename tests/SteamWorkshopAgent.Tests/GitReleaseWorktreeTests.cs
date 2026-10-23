@@ -42,7 +42,12 @@ public sealed class GitReleaseWorktreeTests
         finally
         {
             if (Directory.Exists(root))
+            {
+                // Git object files are read-only on Windows.
+                foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+                    File.SetAttributes(file, FileAttributes.Normal);
                 Directory.Delete(root, recursive: true);
+            }
         }
     }
 
