@@ -20,6 +20,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\SteamWorkshopAgent\AgentDataPath.cs" Link="AgentDataPath.cs" />
     <Reference Include="Steamworks.NET">
       <HintPath>$(RimWorldManagedDir)/com.rlabrecque.steamworks.net.dll</HintPath>
       <Private>false</Private>

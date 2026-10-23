@@ -68,6 +68,10 @@ That token is used only by the explicit SteamCMD fallback. Never pass passwords 
 
 Routine updates preserve the Workshop item's existing category tags. The separate tag maintenance tool calls RimWorld's local Steamworks UGC path, using RimWorld app id `294100` and the native Steam API library bundled with the installed RimWorld app. It requires the desktop Steam client session to be logged on from Steamworks' point of view.
 
+Native-library discovery starts at the Steam root. On macOS that is `~/Library/Application Support/Steam`. On Windows it is `HKCU\Software\Valve\Steam\SteamPath`, or `C:\Program Files (x86)\Steam` if that value is missing. Discovery then searches every Steam library in `steamapps/libraryfolders.vdf`. It uses the library that contains `appmanifest_294100.acf` and RimWorld's bundled `libsteam_api.dylib` or `steam_api64.dll`, including the older Unity plugin locations. `STEAMWORKS_NATIVE_LIB` overrides discovery.
+
+Run records use `~/Library/Application Support/SteamWorkshopAgent` on macOS and `%LOCALAPPDATA%\SteamWorkshopAgent` on Windows. `STEAM_WORKSHOP_AGENT_DATA_ROOT` overrides both, for the agent and the companion. PATH discovery honors Windows `PATHEXT`.
+
 ## Build and test
 
 ```sh

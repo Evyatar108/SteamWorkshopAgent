@@ -1,3 +1,7 @@
+using System.Runtime.Versioning;
+using System.Text.RegularExpressions;
+using Microsoft.Win32;
+
 namespace SteamWorkshopAgent;
 
 public sealed class SteamEnvironment(ProcessRunner processRunner)
@@ -89,9 +93,7 @@ public sealed class SteamEnvironment(ProcessRunner processRunner)
 
     public IEnumerable<string> GetWorkshopLogPaths()
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var steamRoot = Path.Combine(home, "Library", "Application Support", "Steam");
-
+        var steamRoot = FindSteamRoot();
         yield return Path.Combine(steamRoot, "logs", "workshop_log.txt");
         yield return Path.Combine(steamRoot, "workshopbuilds", $"depot_build_{AgentPaths.RimWorldAppId}.log");
     }
@@ -106,30 +108,84 @@ public sealed class SteamEnvironment(ProcessRunner processRunner)
                 return path;
         }
 
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var rimWorld = Path.Combine(home, "Library", "Application Support", "Steam", "steamapps", "common", "RimWorld");
-        var candidates = new[]
-        {
-            // RimWorld 1.7 (.NET build) ships the library next to its executable.
-            Path.Combine(rimWorld, "RimWorld.app", "Contents", "MacOS", "libsteam_api.dylib"),
-            // RimWorld 1.6 and older (Unity build).
-            Path.Combine(rimWorld, "RimWorldMac.app", "Contents", "PlugIns", "steam_api.bundle", "Contents", "MacOS", "libsteam_api.dylib")
-        };
-
-        return candidates.FirstOrDefault(File.Exists);
+        return FindNativeLibrary(FindSteamRoot(), OperatingSystem.IsWindows());
     }
 
-    private static string? FindRimWorldManifest()
+    private static string? FindRimWorldManifest() => FindManifest(FindSteamRoot());
+
+    private static string FindSteamRoot()
     {
+        if (OperatingSystem.IsWindows())
+            return FindWindowsSteamRoot();
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var candidates = new[]
-        {
-            Path.Combine(home, "Library", "Application Support", "Steam", "steamapps", $"appmanifest_{AgentPaths.RimWorldAppId}.acf"),
-            Path.Combine("/Applications", "Steam.app", "Contents", "MacOS", "steamapps", $"appmanifest_{AgentPaths.RimWorldAppId}.acf")
-        };
-
-        return candidates.FirstOrDefault(File.Exists);
+        return Path.Combine(home, "Library", "Application Support", "Steam");
     }
+
+    [SupportedOSPlatform("windows")]
+    private static string FindWindowsSteamRoot()
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
+        var configured = key?.GetValue("SteamPath") as string;
+        return !string.IsNullOrWhiteSpace(configured)
+            ? Path.GetFullPath(configured)
+            : @"C:\Program Files (x86)\Steam";
+    }
+
+    // The Steam root is always a library. libraryfolders.vdf lists the others, on every platform.
+    internal static IReadOnlyList<string> ParseLibraryPaths(string steamRoot, string vdf)
+    {
+        var paths = new List<string> { Path.GetFullPath(steamRoot) };
+        foreach (Match match in Regex.Matches(vdf, "\"(?<key>path|[0-9]+)\"\\s*\"(?<path>(?:\\\\.|[^\"\\\\])*)\""))
+        {
+            var path = match.Groups["path"].Value.Replace(@"\\", @"\").Replace("\\\"", "\"");
+            if (Path.IsPathRooted(path))
+                paths.Add(Path.GetFullPath(path));
+        }
+        return paths.Distinct(AgentDataPath.PathComparer).ToArray();
+    }
+
+    private static IReadOnlyList<string> LibraryPaths(string steamRoot)
+    {
+        var vdf = Path.Combine(steamRoot, "steamapps", "libraryfolders.vdf");
+        return ParseLibraryPaths(steamRoot, File.Exists(vdf) ? File.ReadAllText(vdf) : "");
+    }
+
+    private static string ManifestPath(string library) =>
+        Path.Combine(library, "steamapps", $"appmanifest_{AgentPaths.RimWorldAppId}.acf");
+
+    internal static string? FindManifest(string steamRoot) =>
+        LibraryPaths(steamRoot).Select(ManifestPath).FirstOrDefault(File.Exists);
+
+    internal static string? FindNativeLibrary(string steamRoot, bool windows)
+    {
+        foreach (var library in LibraryPaths(steamRoot))
+        {
+            var manifest = ManifestPath(library);
+            if (!File.Exists(manifest))
+                continue;
+            var installDir = VdfWriter.ReadWorkshopItemField(File.ReadAllText(manifest), "installdir") ?? "RimWorld";
+            var rimWorld = Path.Combine(library, "steamapps", "common", installDir);
+            var found = NativeLibraryCandidates(rimWorld, windows).FirstOrDefault(File.Exists);
+            if (found != null)
+                return found;
+        }
+        return null;
+    }
+
+    private static string[] NativeLibraryCandidates(string rimWorld, bool windows) => windows
+        ?
+        [
+            // RimWorld 1.7 (.NET build) ships the library next to its executable.
+            Path.Combine(rimWorld, "steam_api64.dll"),
+            // RimWorld 1.6 and older (Unity build).
+            Path.Combine(rimWorld, "RimWorldWin64_Data", "Plugins", "x86_64", "steam_api64.dll"),
+            Path.Combine(rimWorld, "RimWorldWin64_Data", "Plugins", "steam_api64.dll")
+        ]
+        :
+        [
+            Path.Combine(rimWorld, "RimWorld.app", "Contents", "MacOS", "libsteam_api.dylib"),
+            Path.Combine(rimWorld, "RimWorldMac.app", "Contents", "PlugIns", "steam_api.bundle", "Contents", "MacOS", "libsteam_api.dylib")
+        ];
 
     private static string ExpandHome(string path)
     {

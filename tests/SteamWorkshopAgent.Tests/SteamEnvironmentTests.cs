@@ -25,7 +25,7 @@ public sealed class SteamEnvironmentTests
         Assert.Equal("pardeike", user);
     }
 
-    [Fact]
+    [UnixFact]
     public async Task RequireSteamUserAsync_Falls_Back_To_Shell_Probe()
     {
         var root = Path.Combine(Path.GetTempPath(), "steam-workshop-agent-tests", Guid.NewGuid().ToString("N"));
