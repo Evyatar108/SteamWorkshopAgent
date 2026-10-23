@@ -479,9 +479,9 @@ public sealed class WorkshopTagUpdater(SteamEnvironment steamEnvironment, ModIns
             steamApiManualDispatchRunFrame(steamApiGetHSteamPipe());
         }
 
-        public bool TryGetSubmitItemUpdateResult(ulong apiCall, out SubmitItemUpdateResult result, out bool ioFailure)
+        public bool TryGetSubmitItemUpdateResult(ulong apiCall, out SteamSubmitItemUpdateResult result, out bool ioFailure)
         {
-            var size = Marshal.SizeOf<SubmitItemUpdateResult>();
+            var size = SteamCallbackPacking.SubmitResultSize(OperatingSystem.IsWindows());
             var buffer = Marshal.AllocHGlobal(size);
             try
             {
@@ -490,11 +490,11 @@ public sealed class WorkshopTagUpdater(SteamEnvironment steamEnvironment, ModIns
                     apiCall,
                     buffer,
                     size,
-                    SubmitItemUpdateResult.CallbackId,
+                    SteamSubmitItemUpdateResult.CallbackId,
                     out ioFailure);
 
                 result = available
-                    ? Marshal.PtrToStructure<SubmitItemUpdateResult>(buffer)
+                    ? SteamCallbackPacking.ReadSubmitResult(buffer, OperatingSystem.IsWindows())
                     : default;
                 return available;
             }
@@ -517,19 +517,6 @@ public sealed class WorkshopTagUpdater(SteamEnvironment steamEnvironment, ModIns
 
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct SteamParamStringArray(IntPtr Strings, int NumStrings);
-
-    [StructLayout(LayoutKind.Sequential, Pack = 8)]
-    private struct SubmitItemUpdateResult
-    {
-        public const int CallbackId = 3404;
-
-        public int Result;
-
-        [MarshalAs(UnmanagedType.I1)]
-        public bool UserNeedsToAcceptWorkshopLegalAgreement;
-
-        public ulong PublishedFileId;
-    }
 
     private enum SteamResult
     {

@@ -76,6 +76,8 @@ Run records use `%LOCALAPPDATA%\SteamWorkshopAgent` on Windows; macOS keeps
 `~/Library/Application Support/SteamWorkshopAgent`. The companion uses the same
 root and `STEAM_WORKSHOP_AGENT_DATA_ROOT` override. PATH discovery honors
 Windows `PATHEXT`.
+Native create/submit callbacks use Steamworks' 8-byte packing on Windows and
+4-byte packing on macOS/Linux; publisher and tag updates share the same decoder.
 
 ## Build And Test
 

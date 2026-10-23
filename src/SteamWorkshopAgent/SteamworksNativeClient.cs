@@ -111,7 +111,7 @@ internal sealed class SteamworksNativeClient : IDisposable
 
     public bool TryGetSubmitItemUpdateResult(ulong apiCall, out SteamSubmitItemUpdateResult result, out bool ioFailure)
     {
-        var size = Marshal.SizeOf<SteamSubmitItemUpdateResult>();
+        var size = SteamCallbackPacking.SubmitResultSize(OperatingSystem.IsWindows());
         var buffer = Marshal.AllocHGlobal(size);
         try
         {
@@ -123,7 +123,7 @@ internal sealed class SteamworksNativeClient : IDisposable
                 SteamSubmitItemUpdateResult.CallbackId,
                 out ioFailure);
             result = available
-                ? Marshal.PtrToStructure<SteamSubmitItemUpdateResult>(buffer)
+                ? SteamCallbackPacking.ReadSubmitResult(buffer, OperatingSystem.IsWindows())
                 : default;
             return available;
         }
@@ -135,7 +135,21 @@ internal sealed class SteamworksNativeClient : IDisposable
 
     public bool TryGetCreateItemResult(ulong apiCall, out SteamCreateItemResult result, out bool ioFailure)
     {
-        return TryGetApiCallResult(apiCall, SteamCreateItemResult.CallbackId, out result, out ioFailure);
+        var size = SteamCallbackPacking.CreateResultSize(OperatingSystem.IsWindows());
+        var buffer = Marshal.AllocHGlobal(size);
+        try
+        {
+            var available = steamApiManualDispatchGetApiCallResult(
+                steamApiGetHSteamPipe(), apiCall, buffer, size, SteamCreateItemResult.CallbackId, out ioFailure);
+            result = available
+                ? SteamCallbackPacking.ReadCreateResult(buffer, OperatingSystem.IsWindows())
+                : default;
+            return available;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
     }
 
     public void Dispose()
@@ -153,23 +167,6 @@ internal sealed class SteamworksNativeClient : IDisposable
     private T Load<T>(string name) where T : Delegate
     {
         return Marshal.GetDelegateForFunctionPointer<T>(NativeLibrary.GetExport(library, name));
-    }
-
-    private bool TryGetApiCallResult<T>(ulong apiCall, int callbackId, out T result, out bool ioFailure) where T : struct
-    {
-        var size = Marshal.SizeOf<T>();
-        var buffer = Marshal.AllocHGlobal(size);
-        try
-        {
-            var available = steamApiManualDispatchGetApiCallResult(
-                steamApiGetHSteamPipe(), apiCall, buffer, size, callbackId, out ioFailure);
-            result = available ? Marshal.PtrToStructure<T>(buffer) : default;
-            return available;
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(buffer);
-        }
     }
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -292,7 +289,7 @@ internal sealed class SteamworksNativeClient : IDisposable
 
 internal readonly record struct SteamItemUpdateProgress(string Status, ulong BytesProcessed, ulong BytesTotal);
 
-[StructLayout(LayoutKind.Sequential, Pack = 4)]
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
 internal struct SteamSubmitItemUpdateResult
 {
     public const int CallbackId = 3404;
@@ -305,7 +302,7 @@ internal struct SteamSubmitItemUpdateResult
     public ulong PublishedFileId;
 }
 
-[StructLayout(LayoutKind.Sequential, Pack = 4)]
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
 internal struct SteamCreateItemResult
 {
     public const int CallbackId = 3403;
@@ -315,4 +312,60 @@ internal struct SteamCreateItemResult
 
     [MarshalAs(UnmanagedType.I1)]
     public bool UserNeedsToAcceptWorkshopLegalAgreement;
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+internal struct SteamSubmitItemUpdateResultSmall
+{
+    public int Result;
+    [MarshalAs(UnmanagedType.I1)]
+    public bool UserNeedsToAcceptWorkshopLegalAgreement;
+    public ulong PublishedFileId;
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+internal struct SteamCreateItemResultSmall
+{
+    public int Result;
+    public ulong PublishedFileId;
+    [MarshalAs(UnmanagedType.I1)]
+    public bool UserNeedsToAcceptWorkshopLegalAgreement;
+}
+
+internal static class SteamCallbackPacking
+{
+    // steam_api_common.h: VALVE_CALLBACK_PACK_LARGE on Windows, _SMALL elsewhere.
+    internal static int CreateResultSize(bool windows) => windows
+        ? Marshal.SizeOf<SteamCreateItemResult>()
+        : Marshal.SizeOf<SteamCreateItemResultSmall>();
+
+    internal static int SubmitResultSize(bool windows) => windows
+        ? Marshal.SizeOf<SteamSubmitItemUpdateResult>()
+        : Marshal.SizeOf<SteamSubmitItemUpdateResultSmall>();
+
+    internal static SteamCreateItemResult ReadCreateResult(IntPtr buffer, bool windows)
+    {
+        if (windows)
+            return Marshal.PtrToStructure<SteamCreateItemResult>(buffer);
+        var small = Marshal.PtrToStructure<SteamCreateItemResultSmall>(buffer);
+        return new SteamCreateItemResult
+        {
+            Result = small.Result,
+            PublishedFileId = small.PublishedFileId,
+            UserNeedsToAcceptWorkshopLegalAgreement = small.UserNeedsToAcceptWorkshopLegalAgreement
+        };
+    }
+
+    internal static SteamSubmitItemUpdateResult ReadSubmitResult(IntPtr buffer, bool windows)
+    {
+        if (windows)
+            return Marshal.PtrToStructure<SteamSubmitItemUpdateResult>(buffer);
+        var small = Marshal.PtrToStructure<SteamSubmitItemUpdateResultSmall>(buffer);
+        return new SteamSubmitItemUpdateResult
+        {
+            Result = small.Result,
+            PublishedFileId = small.PublishedFileId,
+            UserNeedsToAcceptWorkshopLegalAgreement = small.UserNeedsToAcceptWorkshopLegalAgreement
+        };
+    }
 }
