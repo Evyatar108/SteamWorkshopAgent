@@ -128,6 +128,24 @@ public static class WorkshopTools
         });
     }
 
+    [McpServerTool, Description("Publish an already-staged folder as is, without a repository, GitHub release or build. Requires a matching About/PublishedFileId.txt and an exact nonempty change-note file. Confirmation requires expectDigest from the approved dry run. Preserves description, visibility and tags. Without confirm, returns a local-only plan.")]
+    public static Task<string> WorkshopPublishFolder(
+        [Description("Absolute path to the already-staged mod folder. Never modified.")]
+        string folder,
+        [Description("Expected nonzero Workshop item id, which must match About/PublishedFileId.txt.")]
+        ulong expectId,
+        [Description("Path to a nonempty UTF-8 text file. Its text is submitted without a heading or prefix.")]
+        string changeNoteFile,
+        bool confirm = false,
+        [Description("Upload backend: auto or standalone. SteamCMD is not supported for this command.")]
+        string backend = "auto",
+        [Description("Required when confirm=true: the 64-character contentDigest printed by the approved dry run. Refuses changed content before and after creator lookup.")]
+        string? expectDigest = null)
+    {
+        return ToolJson.TryAsync(() => ServiceLocator.Get<WorkshopPublisher>()
+            .PublishFolderAsync(folder, expectId, changeNoteFile, confirm, backend, expectDigest));
+    }
+
     [McpServerTool, Description("Submit an already-prepared owner-verified Workshop request through the detached Steamworks helper. Use only for a request produced by this agent. Requires no password.")]
     public static Task<string> WorkshopPublishPrepared(
         [Description("Absolute path to steamworks-request.json under the SteamWorkshopAgent runs directory.")]

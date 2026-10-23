@@ -119,6 +119,10 @@ public sealed class TestModRepo : IDisposable
     public void Dispose()
     {
         if (Directory.Exists(Root))
+        {
+            foreach (var file in Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories))
+                File.SetAttributes(file, FileAttributes.Normal);
             Directory.Delete(Root, recursive: true);
+        }
     }
 }

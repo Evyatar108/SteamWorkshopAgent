@@ -12,6 +12,39 @@ public sealed class WorkshopPublisher(
     WorkshopPublishRequestStore requestStore,
     SteamworksPublisher steamworksPublisher)
 {
+    internal Func<string, Task<WorkshopDescriptionSnapshot>> ReadDescription { get; init; }
+        = descriptionReader.GetDescriptionAsync;
+
+    internal Func<string, Task<WorkshopPublishBackendResult>> SubmitPrepared { get; init; }
+        = steamworksPublisher.PublishPreparedAsync;
+
+    public async Task<object> PublishFolderAsync(
+        string folder, ulong expectedId, string changeNoteFile, bool confirm = false, string backend = "auto",
+        string? expectedDigest = null)
+    {
+        if (backend.Trim().ToLowerInvariant() is not ("auto" or "standalone"))
+            throw new ArgumentException("Folder publishing supports only auto or standalone.", nameof(backend));
+        if (confirm && expectedDigest == null)
+            throw new ArgumentException("--expect-digest is required when confirming a folder publish. Use the contentDigest from the approved dry run.");
+        var approvedDigest = expectedDigest == null
+            ? null
+            : WorkshopPublishRequestStore.ParseContentDigest(expectedDigest);
+        var plan = await workshopPlanner.CreateFolderPlanAsync(folder, expectedId, changeNoteFile);
+        if (!confirm)
+            return new WorkshopFolderPlan(
+                plan.Mod.ModName, expectedId,
+                Directory.EnumerateFiles(plan.ContentFolder, "*", SearchOption.AllDirectories).Count(),
+                await WorkshopPublishRequestStore.ComputeContentDigestAsync(plan.ContentFolder),
+                new FileInfo(plan.PreviewFile).Length, plan.ChangeNote);
+
+        await WorkshopPublishRequestStore.ComputeContentDigestAsync(plan.ContentFolder, approvedDigest);
+        Directory.CreateDirectory(plan.RunDirectory);
+        await File.WriteAllTextAsync(plan.VdfPath, plan.VdfContent);
+        await File.WriteAllTextAsync(Path.Combine(plan.RunDirectory, "plan.json"),
+            JsonSerializer.Serialize(plan, ToolJson.Options));
+        return await PublishFinalPlanAsync(plan, backend, steamUser: null, expectedDigest: approvedDigest);
+    }
+
     public async Task<object> PublishReleaseAsync(
         string repoPath,
         string tag,
@@ -196,7 +229,8 @@ public sealed class WorkshopPublisher(
     private async Task<object> PublishFinalPlanAsync(
         WorkshopReleasePlan finalPlan,
         string backend,
-        string? steamUser)
+        string? steamUser,
+        string? expectedDigest = null)
     {
         var normalizedBackend = backend.Trim().ToLowerInvariant();
         if (normalizedBackend is not ("auto" or "standalone" or "steamcmd"))
@@ -207,12 +241,12 @@ public sealed class WorkshopPublisher(
 
         var publishedFileId = finalPlan.Mod.PublishedFileId
             ?? throw new InvalidOperationException("A Workshop published file id is required.");
-        var current = await descriptionReader.GetDescriptionAsync(publishedFileId.ToString());
+        var current = await ReadDescription(publishedFileId.ToString());
         if (current.Result != 1 || !ulong.TryParse(current.Creator, out var creatorSteamId) || creatorSteamId == 0)
             throw new InvalidOperationException("Steam did not return a verifiable creator account for the Workshop item.");
 
-        var preparation = await requestStore.CreateAsync(finalPlan, creatorSteamId);
-        var result = await steamworksPublisher.PublishPreparedAsync(preparation.RequestPath);
+        var preparation = await requestStore.CreateAsync(finalPlan, creatorSteamId, expectedDigest);
+        var result = await SubmitPrepared(preparation.RequestPath);
         return result with { Plan = finalPlan };
     }
 

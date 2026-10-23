@@ -169,6 +169,64 @@ Source release builds always pass `BuildBridgeTools=false` so GitHub/Steam relea
 
 Publishes an already-built deployed mod folder through the same prepared-request and backend policy. This path does not rebuild the mod and does not refresh Workshop tags. Use it when a separate Release build has already produced the exact deployed folder that should be uploaded.
 
+`WorkshopPublishFolder` / `publish-folder` uploads an already-staged folder as
+is, without Git, a release tag, GitHub or a build:
+
+```powershell
+dotnet .\src\SteamWorkshopAgent\bin\Release\net10.0\SteamWorkshopAgent.dll publish-folder `
+  'C:\mods\StagedMod' --expect-id 123456789 --changenote-file 'C:\notes\release.txt'
+```
+
+Without `--confirm`, this only reads local files and prints the title from
+`About/About.xml`, item id, file count, SHA-256 content digest, preview size and
+exact change-note text. It sends nothing to Steam and writes nothing. To confirm:
+
+```powershell
+dotnet .\src\SteamWorkshopAgent\bin\Release\net10.0\SteamWorkshopAgent.dll publish-folder `
+  'C:\mods\StagedMod' --expect-id 123456789 --changenote-file 'C:\notes\release.txt' `
+  --confirm --expect-digest '<contentDigest from the approved dry run>' --backend standalone
+```
+
+Use backend `standalone` or `auto`. For MCP, supply the same digest in
+`WorkshopPublishFolder`'s `expectDigest` parameter when `confirm=true`.
+Confirmation requires a valid 64-character
+SHA-256 hexadecimal digest. The agent checks the folder against that approved
+digest before the creator lookup, checks it again after the lookup when preparing
+the request, and records that digest for the parent/helper's existing content
+checks. A change during the creator lookup is refused rather than
+silently approved. Review a new dry run before approving changed bytes.
+
+The existing owner/app-checked, fingerprinted prepared-request path is reused.
+Prepared uploads copy content and preview into a private run-owned `snapshot`
+directory, verify the copied content against the approved digest, then mark its
+files read-only. Requests and both native submitters use only snapshot paths.
+Changes to the caller's folder after preparation do not change the upload.
+Tampered snapshots or previews are refused before native access. The same
+snapshot preparation applies to deployed-release and built-release requests.
+The caller's folder is never modified. Requests using old live paths must be
+prepared again; read-back remains available.
+Content digests use `sha256-manifest-v1`, shared with the companion. Files are
+ordered by ordinal, forward-slash relative path. After the UTF-8 domain header
+`SteamWorkshopAgent content manifest v1` plus NUL, each record contains a
+little-endian 32-bit UTF-8 path byte length, path bytes, little-endian 64-bit file
+length, and that file's raw 32-byte SHA-256. SHA-256 of the manifest is the
+64-hex `contentDigest`. Requests record `contentDigestFormat`; missing or other
+formats cannot be submitted. Regenerate old dry runs after upgrading.
+Missing, zero or mismatching
+`About/PublishedFileId.txt`, missing `About/About.xml`, invalid content or an
+empty change-note file is refused. The note gets no heading or prefix.
+Description, visibility and tags are untouched; `About/Preview.png` is uploaded
+as with deployed releases. The folder is never built or modified. XML-only mods
+do not need an `Assemblies` directory for folder publishing; build and release
+validation still requires a compiled assembly.
+
+Run records normally live in the platform's application-data directory. Set
+`STEAM_WORKSHOP_AGENT_DATA_ROOT` to an absolute path to isolate all agent run
+records and helper data (for example in a temporary directory for offline tests).
+Use the same setting in a companion process when using that fallback.
+Folder publishing refuses a data root inside the upload folder, so run records
+cannot become part of the staged payload.
+
 `WorkshopPublishPrepared`
 
 Submits a still-valid prepared request through the detached helper. The request must live under the agent's run directory and its content fingerprint must still match.
