@@ -197,6 +197,10 @@ Use the same setting in a companion process when using that fallback.
 `WorkshopPublishPrepared`
 
 Submits a still-valid prepared request through the detached helper. The request must live under the agent's run directory and its content fingerprint must still match.
+The parent, detached helper and companion refuse a request whose result records
+submit intent, submission, an ambiguous outcome or completion. Read back the
+Workshop item instead; `verify` remains available. An unreadable result also
+fails closed. Only a proven pre-submission failure remains eligible for fallback.
 
 `WorkshopVerifyAfterPublish`
 

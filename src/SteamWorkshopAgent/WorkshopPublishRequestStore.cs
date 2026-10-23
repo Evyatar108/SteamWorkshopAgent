@@ -6,6 +6,14 @@ namespace SteamWorkshopAgent;
 
 public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
 {
+    private readonly string? runsDirectoryOverride;
+
+    internal WorkshopPublishRequestStore(ProcessRunner processRunner, string runsDirectory)
+        : this(processRunner)
+    {
+        runsDirectoryOverride = runsDirectory;
+    }
+
     public async Task<WorkshopPublishPreparation> CreateAsync(
         WorkshopReleasePlan plan,
         ulong expectedCreatorSteamId)
@@ -98,6 +106,7 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
     public async Task<WorkshopPublishRequest> ReadAndValidateAsync(string requestPath)
     {
         var request = await ReadForVerificationAsync(requestPath);
+        await ThrowIfPreviouslySubmittedAsync(request.ResultPath);
 
         if (request.ExpiresAtUtc <= DateTimeOffset.UtcNow)
             throw new InvalidOperationException("The Workshop publish request has expired. Create a fresh release plan.");
@@ -113,10 +122,31 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
         return request;
     }
 
+    private static async Task ThrowIfPreviouslySubmittedAsync(string resultPath)
+    {
+        if (!File.Exists(resultPath))
+            return;
+        WorkshopPublishBackendResult? result;
+        try
+        {
+            result = JsonSerializer.Deserialize<WorkshopPublishBackendResult>(
+                await File.ReadAllTextAsync(resultPath), ToolJson.Options);
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidOperationException(
+                "The previous publish result is unreadable. Read back the Workshop item instead of resubmitting.",
+                exception);
+        }
+        PublishReplayGuard.EnsureCanSubmit(
+            result?.Stage, result?.SubmissionStarted ?? false,
+            result?.OutcomeDefinitive ?? false, result?.FallbackAllowed ?? false);
+    }
+
     public async Task<WorkshopPublishRequest> ReadForVerificationAsync(string requestPath)
     {
         var fullPath = Path.GetFullPath(requestPath);
-        var runsRoot = Path.GetFullPath(AgentPaths.RunsDirectory) + Path.DirectorySeparatorChar;
+        var runsRoot = Path.GetFullPath(runsDirectoryOverride ?? AgentPaths.RunsDirectory) + Path.DirectorySeparatorChar;
         if (!fullPath.StartsWith(runsRoot, AgentDataPath.PathComparison))
             throw new InvalidOperationException("Workshop publish requests must be stored under the SteamWorkshopAgent runs directory.");
 
