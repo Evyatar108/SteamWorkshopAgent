@@ -115,7 +115,7 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
     {
         var fullPath = Path.GetFullPath(requestPath);
         var runsRoot = Path.GetFullPath(AgentPaths.RunsDirectory) + Path.DirectorySeparatorChar;
-        if (!fullPath.StartsWith(runsRoot, StringComparison.Ordinal))
+        if (!fullPath.StartsWith(runsRoot, AgentDataPath.PathComparison))
             throw new InvalidOperationException("Workshop publish requests must be stored under the SteamWorkshopAgent runs directory.");
 
         var request = JsonSerializer.Deserialize<WorkshopPublishRequest>(
@@ -128,7 +128,7 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
             throw new InvalidOperationException($"Refusing to use a request for unexpected Steam app id {request.AppId}.");
         if (request.PublishedFileId == 0 || request.ExpectedCreatorSteamId == 0)
             throw new InvalidOperationException("The Workshop item and expected creator ids must be nonzero.");
-        if (!Path.GetFullPath(request.ResultPath).StartsWith(runsRoot, StringComparison.Ordinal))
+        if (!Path.GetFullPath(request.ResultPath).StartsWith(runsRoot, AgentDataPath.PathComparison))
             throw new InvalidOperationException("The Workshop result path must be stored under the SteamWorkshopAgent runs directory.");
         return request;
     }

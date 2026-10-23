@@ -246,10 +246,9 @@ public sealed class SteamWorkshopBridgeTools
     private static async Task<PublishRequest> ReadAndValidateRequestAsync(string requestPath, string requestId)
     {
         var fullPath = Path.GetFullPath(requestPath);
-        var runsRoot = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.Personal),
-            "Library", "Application Support", "SteamWorkshopAgent", "runs") + Path.DirectorySeparatorChar;
-        if (!fullPath.StartsWith(runsRoot, StringComparison.Ordinal))
+        var runsRoot = Path.GetFullPath(Path.Combine(
+            AgentDataPath.GetAppSupportDirectory(), "runs")) + Path.DirectorySeparatorChar;
+        if (!fullPath.StartsWith(runsRoot, AgentDataPath.PathComparison))
             throw new InvalidOperationException("Workshop publish requests must be stored under the SteamWorkshopAgent runs directory.");
 
         var request = JsonConvert.DeserializeObject<PublishRequest>(File.ReadAllText(fullPath));
@@ -263,7 +262,7 @@ public sealed class SteamWorkshopBridgeTools
             throw new InvalidOperationException("The Workshop request contains invalid app, item, or creator ids.");
         if (!Directory.Exists(request.ContentFolder) || !File.Exists(request.PreviewFile))
             throw new InvalidOperationException("The prepared content folder or preview file no longer exists.");
-        if (!Path.GetFullPath(request.ResultPath).StartsWith(runsRoot, StringComparison.Ordinal))
+        if (!Path.GetFullPath(request.ResultPath).StartsWith(runsRoot, AgentDataPath.PathComparison))
             throw new InvalidOperationException("The Workshop result path is outside the SteamWorkshopAgent runs directory.");
 
         var digest = await ComputeContentDigestAsync(request.ContentFolder).ConfigureAwait(false);

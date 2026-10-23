@@ -4,14 +4,7 @@ public static class AgentPaths
 {
     public const uint RimWorldAppId = 294100;
 
-    public static string AppSupportDirectory
-    {
-        get
-        {
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            return Path.Combine(home, "Library", "Application Support", "SteamWorkshopAgent");
-        }
-    }
+    public static string AppSupportDirectory => AgentDataPath.GetAppSupportDirectory();
 
     public static string RunsDirectory => Path.Combine(AppSupportDirectory, "runs");
 

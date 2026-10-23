@@ -1,3 +1,7 @@
+using System.Runtime.Versioning;
+using System.Text.RegularExpressions;
+using Microsoft.Win32;
+
 namespace SteamWorkshopAgent;
 
 public sealed class SteamEnvironment(ProcessRunner processRunner)
@@ -90,7 +94,9 @@ public sealed class SteamEnvironment(ProcessRunner processRunner)
     public IEnumerable<string> GetWorkshopLogPaths()
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var steamRoot = Path.Combine(home, "Library", "Application Support", "Steam");
+        var steamRoot = OperatingSystem.IsWindows()
+            ? FindWindowsSteamRoot()
+            : Path.Combine(home, "Library", "Application Support", "Steam");
 
         yield return Path.Combine(steamRoot, "logs", "workshop_log.txt");
         yield return Path.Combine(steamRoot, "workshopbuilds", $"depot_build_{AgentPaths.RimWorldAppId}.log");
@@ -105,6 +111,9 @@ public sealed class SteamEnvironment(ProcessRunner processRunner)
             if (File.Exists(path))
                 return path;
         }
+
+        if (OperatingSystem.IsWindows())
+            return FindWindowsNativeLibrary(FindWindowsSteamRoot());
 
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var rimWorld = Path.Combine(home, "Library", "Application Support", "Steam", "steamapps", "common", "RimWorld");
@@ -121,6 +130,8 @@ public sealed class SteamEnvironment(ProcessRunner processRunner)
 
     private static string? FindRimWorldManifest()
     {
+        if (OperatingSystem.IsWindows())
+            return FindWindowsManifest(FindWindowsSteamRoot());
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var candidates = new[]
         {
@@ -129,6 +140,61 @@ public sealed class SteamEnvironment(ProcessRunner processRunner)
         };
 
         return candidates.FirstOrDefault(File.Exists);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static string FindWindowsSteamRoot()
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
+        var configured = key?.GetValue("SteamPath") as string;
+        return !string.IsNullOrWhiteSpace(configured)
+            ? Path.GetFullPath(configured)
+            : @"C:\Program Files (x86)\Steam";
+    }
+
+    internal static IReadOnlyList<string> ParseWindowsLibraryPaths(string steamRoot, string vdf)
+    {
+        var paths = new List<string> { Path.GetFullPath(steamRoot) };
+        foreach (Match match in Regex.Matches(vdf, "\"(?<key>path|[0-9]+)\"\\s*\"(?<path>(?:\\\\.|[^\"\\\\])*)\""))
+        {
+            var path = match.Groups["path"].Value.Replace(@"\\", @"\").Replace("\\\"", "\"");
+            if (Path.IsPathRooted(path))
+                paths.Add(Path.GetFullPath(path));
+        }
+        return paths.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static IReadOnlyList<string> WindowsLibraryPaths(string steamRoot)
+    {
+        var vdf = Path.Combine(steamRoot, "steamapps", "libraryfolders.vdf");
+        return ParseWindowsLibraryPaths(steamRoot, File.Exists(vdf) ? File.ReadAllText(vdf) : "");
+    }
+
+    internal static string? FindWindowsManifest(string steamRoot) => WindowsLibraryPaths(steamRoot)
+        .Select(library => Path.Combine(library, "steamapps", $"appmanifest_{AgentPaths.RimWorldAppId}.acf"))
+        .FirstOrDefault(File.Exists);
+
+    internal static string? FindWindowsNativeLibrary(string steamRoot)
+    {
+        foreach (var library in WindowsLibraryPaths(steamRoot))
+        {
+            var steamApps = Path.Combine(library, "steamapps");
+            var manifest = Path.Combine(steamApps, $"appmanifest_{AgentPaths.RimWorldAppId}.acf");
+            if (!File.Exists(manifest))
+                continue;
+            var installDir = VdfWriter.ReadWorkshopItemField(File.ReadAllText(manifest), "installdir") ?? "RimWorld";
+            var rimWorld = Path.Combine(steamApps, "common", installDir);
+            var candidates = new[]
+            {
+                Path.Combine(rimWorld, "steam_api64.dll"),
+                Path.Combine(rimWorld, "RimWorldWin64_Data", "Plugins", "x86_64", "steam_api64.dll"),
+                Path.Combine(rimWorld, "RimWorldWin64_Data", "Plugins", "steam_api64.dll")
+            };
+            var found = candidates.FirstOrDefault(File.Exists);
+            if (found != null)
+                return found;
+        }
+        return null;
     }
 
     private static string ExpandHome(string path)

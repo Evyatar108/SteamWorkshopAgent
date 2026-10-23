@@ -86,14 +86,27 @@ public sealed class ProcessRunner
 
     public string? FindOnPath(string executable)
     {
-        var paths = (Environment.GetEnvironmentVariable("PATH") ?? "")
+        return FindOnPath(executable, Environment.GetEnvironmentVariable("PATH") ?? "",
+            Environment.GetEnvironmentVariable("PATHEXT"), OperatingSystem.IsWindows());
+    }
+
+    internal static string? FindOnPath(string executable, string searchPath, string? pathExt, bool windows)
+    {
+        var paths = searchPath
             .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var suffixes = windows && !Path.HasExtension(executable)
+            ? new[] { "" }.Concat((pathExt ?? ".COM;.EXE;.BAT;.CMD")
+                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            : new[] { "" };
 
         foreach (var path in paths)
         {
-            var candidate = Path.Combine(path, executable);
-            if (File.Exists(candidate))
-                return candidate;
+            foreach (var suffix in suffixes)
+            {
+                var candidate = Path.Combine(path.Trim('"'), executable + suffix);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
         }
 
         return null;

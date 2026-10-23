@@ -16,6 +16,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\SteamWorkshopAgent\AgentDataPath.cs" Link="AgentDataPath.cs" />
     <Reference Include="RimBridgeServer.Sdk">
       <HintPath>$(RimBridgeAssembliesDir)/RimBridgeServer.Sdk.dll</HintPath>
       <Private>false</Private>
