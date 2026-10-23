@@ -20,6 +20,7 @@
     <Compile Include="..\SteamWorkshopAgent\PublishReplayGuard.cs" Link="PublishReplayGuard.cs" />
     <Compile Include="..\SteamWorkshopAgent\PublishSnapshotPaths.cs" Link="PublishSnapshotPaths.cs" />
     <Compile Include="..\SteamWorkshopAgent\ContentFingerprint.cs" Link="ContentFingerprint.cs" />
+    <Compile Include="..\SteamWorkshopAgent\PublishRequestClaim.cs" Link="PublishRequestClaim.cs" />
     <Reference Include="RimBridgeServer.Sdk">
       <HintPath>$(RimBridgeAssembliesDir)/RimBridgeServer.Sdk.dll</HintPath>
       <Private>false</Private>

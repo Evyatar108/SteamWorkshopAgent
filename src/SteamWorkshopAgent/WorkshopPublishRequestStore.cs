@@ -5,6 +5,7 @@ namespace SteamWorkshopAgent;
 public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
 {
     private readonly string? runsDirectoryOverride;
+    internal string RunsDirectory => runsDirectoryOverride ?? AgentPaths.RunsDirectory;
 
     internal WorkshopPublishRequestStore(ProcessRunner processRunner, string runsDirectory)
         : this(processRunner)

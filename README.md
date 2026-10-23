@@ -234,6 +234,14 @@ The parent, detached helper and companion refuse a request whose result records
 submit intent, submission, an ambiguous outcome or completion. Read back the
 Workshop item instead; `verify` remains available. An unreadable result also
 fails closed. Only a proven pre-submission failure remains eligible for fallback.
+Every standalone helper and companion attempt first creates an exclusive,
+per-request `steamworks-request.json.claim` file with its PID and UTC time.
+Atomic `CreateNew` prevents competing processes from both reaching validation
+and submission. The claim is held through result persistence and remains after
+completion, validation failure or a crash. It never expires or gets deleted
+automatically. An existing claim means refuse and read back the Workshop item.
+Fallback is only possible before a native submitter has claimed the request;
+once claimed, even a pre-submit failure does not authorize reuse or fallback.
 
 `WorkshopVerifyAfterPublish`
 
