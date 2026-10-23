@@ -264,6 +264,23 @@ public sealed class SteamWorkshopBridgeTools
             throw new InvalidOperationException("The prepared content folder or preview file no longer exists.");
         if (!Path.GetFullPath(request.ResultPath).StartsWith(runsRoot, AgentDataPath.PathComparison))
             throw new InvalidOperationException("The Workshop result path is outside the SteamWorkshopAgent runs directory.");
+        if (File.Exists(request.ResultPath))
+        {
+            PublishResult previous;
+            try
+            {
+                previous = JsonConvert.DeserializeObject<PublishResult>(File.ReadAllText(request.ResultPath));
+            }
+            catch (JsonException exception)
+            {
+                throw new InvalidOperationException(
+                    "The previous publish result is unreadable. Read back the Workshop item instead of resubmitting.",
+                    exception);
+            }
+            PublishReplayGuard.EnsureCanSubmit(
+                previous?.Stage, previous?.SubmissionStarted ?? false,
+                previous?.OutcomeDefinitive ?? false, previous?.FallbackAllowed ?? false);
+        }
 
         var digest = await ComputeContentDigestAsync(request.ContentFolder).ConfigureAwait(false);
         if (!string.Equals(digest, request.ContentDigest, StringComparison.Ordinal))
