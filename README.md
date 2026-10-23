@@ -169,6 +169,21 @@ Source release builds always pass `BuildBridgeTools=false` so GitHub/Steam relea
 
 Publishes an already-built deployed mod folder through the same prepared-request and backend policy. This path does not rebuild the mod and does not refresh Workshop tags. Use it when a separate Release build has already produced the exact deployed folder that should be uploaded.
 
+`WorkshopPublishFolder` / `publish-folder`
+
+Uploads an already-staged folder as is. It needs no repository, release tag, GitHub release or build:
+
+```sh
+SteamWorkshopAgent publish-folder <folder> --expect-id <id> --changenote-file <path>
+SteamWorkshopAgent publish-folder <folder> --expect-id <id> --changenote-file <path> --confirm --expect-digest <contentDigest>
+```
+
+The dry run reads only local files. It prints the title, the item id, the file count, the content digest, the preview size and the change note. It sends nothing to Steam and writes nothing. To publish, confirm with the `contentDigest` of the approved dry run. The agent refuses the upload if the folder no longer matches that digest. The MCP tool takes the same digest as `expectDigest`.
+
+`About/PublishedFileId.txt` must contain the expected id. The change note is sent verbatim, without a heading. Description, visibility and tags stay unchanged. XML-only mods need no `Assemblies` folder here. Build and release validation still requires a compiled assembly. The backend is `auto` or `standalone`. The agent data root must be outside the folder, so run records cannot become part of the upload.
+
+Content digests hash a manifest of files in ordinal path order. Each record holds the UTF-8 path length, the path, the file length and the file's SHA-256. The agent and the companion share this code.
+
 `WorkshopPublishPrepared`
 
 Submits a still-valid prepared request through the detached helper. The request must live under the agent's run directory and its content fingerprint must still match.

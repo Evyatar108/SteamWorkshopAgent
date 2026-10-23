@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 
 namespace SteamWorkshopAgent;
@@ -16,13 +14,15 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
 
     public async Task<WorkshopPublishPreparation> CreateAsync(
         WorkshopReleasePlan plan,
-        ulong expectedCreatorSteamId)
+        ulong expectedCreatorSteamId,
+        string? approvedDigest = null)
     {
         if (plan.Mod.PublishedFileId is not { } publishedFileId || publishedFileId == 0)
             throw new InvalidOperationException("A nonzero Workshop published file id is required.");
         if (expectedCreatorSteamId == 0)
             throw new InvalidOperationException("The current Workshop item creator could not be verified.");
 
+        var contentDigest = await ComputeContentDigestAsync(plan.ContentFolder, approvedDigest);
         Directory.CreateDirectory(plan.RunDirectory);
         var requestId = Guid.NewGuid().ToString("N");
         var requestPath = Path.Combine(plan.RunDirectory, "steamworks-request.json");
@@ -43,9 +43,11 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
             PreserveTags: true,
             Visibility: null,
             plan.ChangeNote,
-            plan.Release.TagName,
-            await ResolveCommitAsync(plan.Mod.RepoPath, plan.Release.TagName),
-            await ComputeContentDigestAsync(plan.ContentFolder),
+            plan.Release?.TagName ?? "not-applicable",
+            plan.Release is { } release
+                ? await ResolveCommitAsync(plan.Mod.RepoPath, release.TagName)
+                : "not-applicable",
+            contentDigest,
             resultPath);
 
         await WriteOwnerOnlyJsonAsync(requestPath, request);
@@ -167,28 +169,27 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
         await WriteOwnerOnlyJsonAsync(path, result);
     }
 
-    internal static async Task<string> ComputeContentDigestAsync(string contentFolder)
+    internal static string ParseContentDigest(string value)
     {
+        if (value.Length != 64 || value.Any(character => !char.IsAsciiHexDigit(character)))
+            throw new ArgumentException("--expect-digest must be a 64-character SHA-256 hexadecimal digest from the approved dry run.");
+        return value.ToLowerInvariant();
+    }
+
+    // With an approved digest, refuses content that no longer matches it.
+    internal static async Task<string> ComputeContentDigestAsync(
+        string contentFolder, string? approvedDigest = null)
+    {
+        var expected = approvedDigest == null ? null : ParseContentDigest(approvedDigest);
         var root = Path.GetFullPath(contentFolder);
         if (!Directory.Exists(root))
             throw new DirectoryNotFoundException($"Workshop content folder does not exist: {root}");
 
-        using var aggregate = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
-                     .OrderBy(path => Path.GetRelativePath(root, path), StringComparer.Ordinal))
-        {
-            var relative = Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/');
-            aggregate.AppendData(Encoding.UTF8.GetBytes(relative));
-            aggregate.AppendData([0]);
-
-            await using var stream = File.OpenRead(path);
-            var buffer = new byte[128 * 1024];
-            int read;
-            while ((read = await stream.ReadAsync(buffer)) > 0)
-                aggregate.AppendData(buffer.AsSpan(0, read));
-        }
-
-        return Convert.ToHexString(aggregate.GetHashAndReset()).ToLowerInvariant();
+        var digest = await ContentFingerprint.ComputeAsync(root);
+        if (expected != null && !string.Equals(digest, expected, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "Workshop content does not match the approved digest. Run publish-folder without --confirm and review the new plan.");
+        return digest;
     }
 
     private async Task<string> ResolveCommitAsync(string repoPath, string tag)

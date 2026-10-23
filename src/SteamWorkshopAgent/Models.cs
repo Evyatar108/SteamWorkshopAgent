@@ -35,7 +35,7 @@ public sealed record ValidationIssue(string Code, string Message, string Severit
 
 public sealed record WorkshopReleasePlan(
     ModInspection Mod,
-    GitHubReleaseInfo Release,
+    GitHubReleaseInfo? Release,
     string RunDirectory,
     string StagingRoot,
     string ContentFolder,
@@ -47,6 +47,14 @@ public sealed record WorkshopReleasePlan(
     bool TagsPreserved,
     IReadOnlyList<string> IntendedTags,
     IReadOnlyList<ValidationIssue> ValidationIssues);
+
+public sealed record WorkshopFolderPlan(
+    string Title,
+    ulong PublishedFileId,
+    int FileCount,
+    string ContentDigest,
+    long PreviewBytes,
+    string ChangeNote);
 
 public sealed record WorkshopNewModPlan(
     ModInspection Mod,

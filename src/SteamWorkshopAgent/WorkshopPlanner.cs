@@ -16,6 +16,35 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
         ["unlisted"] = "3"
     };
 
+    public async Task<WorkshopReleasePlan> CreateFolderPlanAsync(
+        string folder, ulong expectedId, string changeNoteFile)
+    {
+        if (expectedId == 0)
+            throw new ArgumentException("The expected Workshop item id must be nonzero.", nameof(expectedId));
+        var mod = await modInspector.InspectFolderAsync(folder);
+        if (mod.PublishedFileId is not { } id || id == 0)
+            throw new InvalidOperationException("About/PublishedFileId.txt must contain a nonzero Workshop item id.");
+        if (id != expectedId)
+            throw new InvalidOperationException($"About/PublishedFileId.txt contains {id}, not the expected item {expectedId}.");
+        var changeNote = await File.ReadAllTextAsync(changeNoteFile);
+        if (string.IsNullOrWhiteSpace(changeNote))
+            throw new InvalidOperationException("The change-note file must not be empty.");
+
+        var runDir = AgentPaths.NewRunDirectory(mod.ModFileName, $"folder-{Guid.NewGuid():N}");
+        var contentRoot = Path.TrimEndingDirectorySeparator(mod.RepoPath) + Path.DirectorySeparatorChar;
+        if (Path.GetFullPath(runDir).StartsWith(contentRoot, AgentDataPath.PathComparison))
+            throw new InvalidOperationException(
+                "The agent data root must be outside the content folder. Choose a different STEAM_WORKSHOP_AGENT_DATA_ROOT.");
+        var previewFile = Path.Combine(mod.RepoPath, "About", "Preview.png");
+        var fields = CreateVdfFields(mod, changeNote, mod.RepoPath, previewFile, updateDescription: false);
+        var issues = Validation.ValidateForWorkshop(mod, previewFile, mod.RepoPath, requireAssembly: false);
+        Validation.ThrowIfErrors(issues);
+        return new WorkshopReleasePlan(
+            mod, Release: null, runDir, Path.Combine(runDir, "mods"), mod.RepoPath,
+            previewFile, Path.Combine(runDir, "workshop.vdf"), VdfWriter.WriteWorkshopItem(fields),
+            changeNote, UpdateDescription: false, TagsPreserved: true, IntendedTags: [], issues);
+    }
+
     public async Task<WorkshopReleasePlan> CreateReleasePlanAsync(
         string repoPath,
         string tag,

@@ -4,7 +4,11 @@ namespace SteamWorkshopAgent;
 
 public sealed class ModInspector(ProcessRunner processRunner)
 {
-    public async Task<ModInspection> InspectAsync(string repoPath)
+    public Task<ModInspection> InspectAsync(string repoPath) => InspectAsync(repoPath, folderOnly: false);
+
+    public Task<ModInspection> InspectFolderAsync(string folder) => InspectAsync(folder, folderOnly: true);
+
+    private async Task<ModInspection> InspectAsync(string repoPath, bool folderOnly)
     {
         var absoluteRepo = Path.GetFullPath(ExpandHome(repoPath));
         if (!Directory.Exists(absoluteRepo))
@@ -21,7 +25,7 @@ public sealed class ModInspector(ProcessRunner processRunner)
         string? modVersionFromProps = null;
         string? projectPath = null;
 
-        if (File.Exists(propsPath))
+        if (!folderOnly && File.Exists(propsPath))
         {
             var props = XDocument.Load(propsPath);
             modFileNameFromProps = RequiredDescendant(props, "ModFileName", propsPath);
@@ -38,7 +42,9 @@ public sealed class ModInspector(ProcessRunner processRunner)
             : modFileNameFromProps;
         var modName = RequiredChild(root, "name", aboutXmlPath, fallback: modNameFromProps);
         var packageId = RequiredChild(root, "packageId", aboutXmlPath);
-        var modVersion = RequiredChild(root, "modVersion", aboutXmlPath, fallback: modVersionFromProps);
+        var modVersion = folderOnly
+            ? OptionalChild(root, "modVersion") ?? ""
+            : RequiredChild(root, "modVersion", aboutXmlPath, fallback: modVersionFromProps);
         var repositoryUrl = repositoryUrlFromProps ?? OptionalChild(root, "url");
         var description = OptionalChild(root, "description");
         var supportedVersions = root.Element("supportedVersions")?
@@ -59,8 +65,8 @@ public sealed class ModInspector(ProcessRunner processRunner)
         var previewPath = Path.Combine(absoluteRepo, "About", "Preview.png");
         var previewInfo = File.Exists(previewPath) ? new FileInfo(previewPath) : null;
         var loadFoldersPath = Path.Combine(absoluteRepo, "LoadFolders.xml");
-        var gitRemote = await TryGitAsync(absoluteRepo, "remote", "get-url", "origin");
-        var gitBranch = await TryGitAsync(absoluteRepo, "branch", "--show-current");
+        var gitRemote = folderOnly ? null : await TryGitAsync(absoluteRepo, "remote", "get-url", "origin");
+        var gitBranch = folderOnly ? null : await TryGitAsync(absoluteRepo, "branch", "--show-current");
 
         var workshopUrl = publishedFileId is { } id
             ? $"https://steamcommunity.com/sharedfiles/filedetails/?id={id}"

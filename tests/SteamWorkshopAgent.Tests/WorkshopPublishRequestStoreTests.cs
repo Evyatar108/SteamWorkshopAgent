@@ -9,6 +9,48 @@ public sealed class WorkshopPublishRequestStoreTests : IDisposable
         "steam-workshop-agent-tests",
         Guid.NewGuid().ToString("N"));
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ContentDigest_Frames_Paths_And_File_Contents(bool twoFileCollision)
+    {
+        var left = Path.Combine(root, "left");
+        var right = Path.Combine(root, "right");
+        Directory.CreateDirectory(left);
+        Directory.CreateDirectory(right);
+        if (twoFileCollision)
+        {
+            File.WriteAllText(Path.Combine(left, "a.bin"), "X");
+            File.WriteAllText(Path.Combine(left, "b.bin"), "Yb.bin\0Z");
+            File.WriteAllText(Path.Combine(right, "a.bin"), "Xb.bin\0Y");
+            File.WriteAllText(Path.Combine(right, "b.bin"), "Z");
+        }
+        else
+        {
+            File.WriteAllText(Path.Combine(left, "a"), "xb\0y");
+            File.WriteAllText(Path.Combine(right, "a"), "x");
+            File.WriteAllText(Path.Combine(right, "b"), "y");
+        }
+        Assert.NotEqual(await WorkshopPublishRequestStore.ComputeContentDigestAsync(left),
+            await WorkshopPublishRequestStore.ComputeContentDigestAsync(right));
+    }
+
+    [Fact]
+    public async Task ContentDigest_Is_Stable_For_Identical_Trees_And_Matches_Manifest_Vector()
+    {
+        var left = Path.Combine(root, "left");
+        var right = Path.Combine(root, "right");
+        Directory.CreateDirectory(left);
+        Directory.CreateDirectory(right);
+        File.WriteAllText(Path.Combine(left, "a"), "x");
+        File.WriteAllText(Path.Combine(left, "b"), "y");
+        File.WriteAllText(Path.Combine(right, "b"), "y");
+        File.WriteAllText(Path.Combine(right, "a"), "x");
+        var digest = await WorkshopPublishRequestStore.ComputeContentDigestAsync(left);
+        Assert.Equal("3a52c679627cde02b8403b7d68a55199f68b5fda065057ec879ff241b0e15c8e", digest);
+        Assert.Equal(digest, await WorkshopPublishRequestStore.ComputeContentDigestAsync(right));
+    }
+
     [Fact]
     public async Task ContentDigest_Is_Deterministic_And_Path_Sensitive()
     {
