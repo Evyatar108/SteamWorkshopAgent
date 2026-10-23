@@ -37,7 +37,7 @@ public sealed class WorkshopPlanner(ModInspector modInspector, GitHubReleaseRead
                 "The agent data root must be outside the content folder. Choose a different STEAM_WORKSHOP_AGENT_DATA_ROOT.");
         var previewFile = Path.Combine(mod.RepoPath, "About", "Preview.png");
         var fields = CreateVdfFields(mod, changeNote, mod.RepoPath, previewFile, updateDescription: false);
-        var issues = Validation.ValidateForWorkshop(mod, previewFile, mod.RepoPath);
+        var issues = Validation.ValidateForWorkshop(mod, previewFile, mod.RepoPath, requireAssembly: false);
         Validation.ThrowIfErrors(issues);
         return new WorkshopReleasePlan(
             mod, Release: null, runDir, Path.Combine(runDir, "mods"), mod.RepoPath,

@@ -6,7 +6,8 @@ public static class Validation
         ModInspection mod,
         string previewPath,
         string contentFolder,
-        bool requirePublishedFileId = true)
+        bool requirePublishedFileId = true,
+        bool requireAssembly = true)
     {
         var issues = new List<ValidationIssue>();
 
@@ -38,10 +39,13 @@ public static class Validation
             if (!File.Exists(about))
                 issues.Add(new ValidationIssue("staged_missing_about", $"Staged About/About.xml was not found: {about}", "error"));
 
-            var hasAssembly = Directory.EnumerateFiles(contentFolder, "*.dll", SearchOption.AllDirectories)
-                .Any(path => path.Split(Path.DirectorySeparatorChar).Contains("Assemblies"));
-            if (!hasAssembly)
-                issues.Add(new ValidationIssue("staged_missing_assembly", "No staged DLL under an Assemblies folder was found.", "error"));
+            if (requireAssembly)
+            {
+                var hasAssembly = Directory.EnumerateFiles(contentFolder, "*.dll", SearchOption.AllDirectories)
+                    .Any(path => path.Split(Path.DirectorySeparatorChar).Contains("Assemblies"));
+                if (!hasAssembly)
+                    issues.Add(new ValidationIssue("staged_missing_assembly", "No staged DLL under an Assemblies folder was found.", "error"));
+            }
         }
 
         return issues;

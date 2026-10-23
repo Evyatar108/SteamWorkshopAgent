@@ -218,7 +218,9 @@ Missing, zero or mismatching
 `About/PublishedFileId.txt`, missing `About/About.xml`, invalid content or an
 empty change-note file is refused. The note gets no heading or prefix.
 Description, visibility and tags are untouched; `About/Preview.png` is uploaded
-as with deployed releases. The folder is never built or modified.
+as with deployed releases. The folder is never built or modified. XML-only mods
+do not need an `Assemblies` directory for folder publishing; build and release
+validation still requires a compiled assembly.
 
 Run records normally live in the platform's application-data directory. Set
 `STEAM_WORKSHOP_AGENT_DATA_ROOT` to an absolute path to isolate all agent run

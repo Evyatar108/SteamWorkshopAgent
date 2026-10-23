@@ -9,6 +9,23 @@ public sealed class WorkshopFolderTests
         new(new ModInspector(new ProcessRunner()), new GitHubReleaseReader(new ProcessRunner()));
 
     [Fact]
+    public async Task FolderPlan_Allows_XmlOnly_Mods_Without_Relaxing_Build_Validation()
+    {
+        using var mod = TestModRepo.CreateDeployed(includePublishedFileId: true);
+        Directory.Delete(Path.Combine(mod.Root, "1.6", "Assemblies"), recursive: true);
+        Directory.CreateDirectory(Path.Combine(mod.Root, "Defs"));
+        File.WriteAllText(Path.Combine(mod.Root, "Defs", "Things.xml"), "<Defs />");
+        var note = Path.Combine(mod.Root, "note.txt");
+        File.WriteAllText(note, "XML-only update");
+
+        var plan = await Planner().CreateFolderPlanAsync(mod.Root, 123456789, note);
+
+        Assert.DoesNotContain(plan.ValidationIssues, issue => issue.Code == "staged_missing_assembly");
+        Assert.Contains(Validation.ValidateForWorkshop(plan.Mod, plan.PreviewFile, plan.ContentFolder),
+            issue => issue.Code == "staged_missing_assembly" && issue.Severity == "error");
+    }
+
+    [Fact]
     public async Task FolderPlan_Uses_About_Title_And_Exact_Note_Without_Source_Metadata()
     {
         using var mod = TestModRepo.CreateDeployed(includePublishedFileId: true);
