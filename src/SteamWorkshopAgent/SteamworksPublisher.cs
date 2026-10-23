@@ -30,6 +30,7 @@ public sealed class SteamworksPublisher(
 
     public async Task<WorkshopPublishBackendResult> PublishPreparedAsync(string requestPath)
     {
+        PublishRequestClaim.ThrowIfExists(requestPath);
         var request = await requestStore.ReadAndValidateAsync(requestPath);
         var nativeLibraryPath = steamEnvironment.FindSteamworksNativeLibrary();
         if (nativeLibraryPath == null)
@@ -50,7 +51,8 @@ public sealed class SteamworksPublisher(
             if (persistedResult != null)
                 return persistedResult;
 
-            return Failure(
+            var claimed = File.Exists(PublishRequestClaim.ClaimPath(requestPath));
+            var failure = Failure(
                 request,
                 requestPath,
                 result.TimedOut ? "helper-timeout" : "helper-failure",
@@ -59,7 +61,13 @@ public sealed class SteamworksPublisher(
                 steamUserLoggedOn: false,
                 steamId: null,
                 steamAppId: null,
-                $"Steamworks publish helper failed with exit code {result.ExitCode}. STDOUT: {Truncate(result.Stdout, 2000)} STDERR: {Truncate(result.Stderr, 2000)}");
+                $"Steamworks publish helper failed with exit code {result.ExitCode}. STDOUT: {Truncate(result.Stdout, 2000)} STDERR: {Truncate(result.Stderr, 2000)}",
+                fallbackAllowed: !claimed);
+            return claimed ? failure with
+            {
+                OutcomeDefinitive = false,
+                Message = failure.Message + " The request was claimed. Read back the Workshop item; do not resubmit."
+            } : failure;
         }
         finally
         {
@@ -106,15 +114,26 @@ public sealed class SteamworksPublisher(
         }
     }
 
-    public async Task<WorkshopPublishBackendResult> PublishInCurrentProcessAsync(
+    public Task<WorkshopPublishBackendResult> PublishInCurrentProcessAsync(
         string requestPath,
         string nativeLibraryPath)
+        => PublishClaimedAsync(requestPath,
+            request => PublishNativeAsync(requestPath, nativeLibraryPath, request));
+
+    internal async Task<WorkshopPublishBackendResult> PublishClaimedAsync(
+        string requestPath, Func<WorkshopPublishRequest, Task<WorkshopPublishBackendResult>> submit)
+    {
+        using var claim = PublishRequestClaim.Acquire(requestPath, requestStore.RunsDirectory);
+        var request = await requestStore.ReadAndValidateAsync(requestPath);
+        return await submit(request);
+    }
+
+    private async Task<WorkshopPublishBackendResult> PublishNativeAsync(
+        string requestPath, string nativeLibraryPath, WorkshopPublishRequest request)
     {
         var stopwatch = Stopwatch.StartNew();
-        WorkshopPublishRequest? request = null;
         try
         {
-            request = await requestStore.ReadAndValidateAsync(requestPath);
             if (!ProcessIsolation.TryDetachFromControllingTerminal(out var isolationMessage))
                 return await PersistAsync(Failure(
                     request, requestPath, "process-isolation", false, false, false, null, null,
@@ -292,9 +311,6 @@ public sealed class SteamworksPublisher(
         }
         catch (Exception exception)
         {
-            if (request == null)
-                throw;
-
             // Once SubmitItemUpdate may have been reached, preserve the durable
             // no-fallback marker. Treating an exception as a pre-submit failure
             // could submit the same update twice through another backend.
@@ -314,6 +330,12 @@ public sealed class SteamworksPublisher(
 
     private async Task<WorkshopPublishBackendResult> PersistAsync(WorkshopPublishBackendResult result)
     {
+        if (result.FallbackAllowed)
+            result = result with
+            {
+                FallbackAllowed = false,
+                Message = result.Message + " This attempt holds a durable claim. Read back the Workshop item before any recovery."
+            };
         await requestStore.WriteResultAsync(result.ResultPath, result);
         return result;
     }

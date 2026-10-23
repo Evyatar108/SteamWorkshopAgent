@@ -71,6 +71,8 @@ public sealed class SteamWorkshopBridgeTools
         if (!confirm)
             throw new InvalidOperationException("confirm=true is required to submit a prepared Workshop update.");
 
+        using var claim = PublishRequestClaim.Acquire(requestPath,
+            Path.Combine(AgentDataPath.GetAppSupportDirectory(), "runs"));
         await PublishLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -325,6 +327,11 @@ public sealed class SteamWorkshopBridgeTools
 
     private static Task<PublishResult> PersistAsync(PublishRequest request, PublishResult result)
     {
+        if (result.FallbackAllowed)
+        {
+            result.FallbackAllowed = false;
+            result.Message += " This attempt holds a durable claim. Read back the Workshop item before any recovery.";
+        }
         var settings = new JsonSerializerSettings
         {
             ContractResolver = new CamelCasePropertyNamesContractResolver(),
