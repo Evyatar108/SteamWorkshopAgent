@@ -283,48 +283,14 @@ public sealed class SteamWorkshopBridgeTools
         }
 
         PublishSnapshotPaths.Validate(requestPath, request.ContentFolder, request.PreviewFile);
-        var digest = await ComputeContentDigestAsync(request.ContentFolder).ConfigureAwait(false);
+        ContentFingerprint.RequireFormat(request.ContentDigestFormat);
+        var digest = await ContentFingerprint.ComputeAsync(request.ContentFolder).ConfigureAwait(false);
         if (!string.Equals(digest, request.ContentDigest, StringComparison.Ordinal))
             throw new InvalidOperationException("Workshop content changed after the publish request was prepared.");
         if (!string.Equals(PublishSnapshotPaths.FileDigest(request.PreviewFile),
                 request.PreviewDigest, StringComparison.Ordinal))
             throw new InvalidOperationException("Workshop preview changed after the publish request was prepared.");
         return request;
-    }
-
-    private static async Task<string> ComputeContentDigestAsync(string contentFolder)
-    {
-        var root = Path.GetFullPath(contentFolder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var files = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
-            .Select(path => new
-            {
-                Path = path,
-                Relative = path.Substring(root.Length + 1).Replace(Path.DirectorySeparatorChar, '/')
-            })
-            .OrderBy(file => file.Relative, StringComparer.Ordinal)
-            .ToArray();
-
-        using (var hash = SHA256.Create())
-        {
-            foreach (var file in files)
-            {
-                var relative = Encoding.UTF8.GetBytes(file.Relative);
-                hash.TransformBlock(relative, 0, relative.Length, relative, 0);
-                var separator = new byte[] { 0 };
-                hash.TransformBlock(separator, 0, separator.Length, separator, 0);
-
-                using (var stream = File.OpenRead(file.Path))
-                {
-                    var buffer = new byte[128 * 1024];
-                    int read;
-                    while ((read = await stream.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
-                        hash.TransformBlock(buffer, 0, read, buffer, 0);
-                }
-            }
-
-            hash.TransformFinalBlock(new byte[0], 0, 0);
-            return string.Concat(hash.Hash.Select(value => value.ToString("x2")));
-        }
     }
 
     private static Task<PublishResult> PersistAsync(PublishRequest request, PublishResult result)
@@ -449,6 +415,7 @@ public sealed class SteamWorkshopBridgeTools
 
     private sealed class PublishRequest
     {
+        public string ContentDigestFormat { get; set; }
         public string PreviewDigest { get; set; }
         public int SchemaVersion { get; set; }
         public string RequestId { get; set; }

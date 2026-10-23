@@ -6,6 +6,24 @@ namespace SteamWorkshopAgent.Tests;
 public sealed class PublishReplayTests
 {
     [Theory]
+    [InlineData(null)]
+    [InlineData("legacy-unframed")]
+    [InlineData("sha256-manifest-v2")]
+    public async Task Validation_Refuses_Unsupported_Digest_Format(string? format)
+    {
+        using var fixture = TestModRepo.CreateDeployed(includePublishedFileId: true);
+        var runs = Path.Combine(fixture.Root, "runs");
+        var request = await CreateRequestAsync(fixture, runs);
+        var path = Path.Combine(runs, "run", "steamworks-request.json");
+        File.WriteAllText(path, JsonSerializer.Serialize(
+            request with { ContentDigestFormat = format }, ToolJson.Options));
+        var store = new WorkshopPublishRequestStore(new ProcessRunner(), runs);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => store.ReadAndValidateAsync(path));
+        Assert.Contains("digest format", error.Message);
+        Assert.Equal(request.PublishedFileId, (await store.ReadForVerificationAsync(path)).PublishedFileId);
+    }
+
+    [Theory]
     [InlineData("submit-intent", false)]
     [InlineData("submitted", true)]
     [InlineData("ambiguous", false)]
@@ -83,7 +101,8 @@ public sealed class PublishReplayTests
             await WorkshopPublishRequestStore.ComputeContentDigestAsync(content),
             Path.Combine(run, "steamworks-result.json"))
         {
-            PreviewDigest = PublishSnapshotPaths.FileDigest(preview)
+            PreviewDigest = PublishSnapshotPaths.FileDigest(preview),
+            ContentDigestFormat = ContentFingerprint.Format
         };
         await File.WriteAllTextAsync(Path.Combine(run, "steamworks-request.json"),
             JsonSerializer.Serialize(request, ToolJson.Options));

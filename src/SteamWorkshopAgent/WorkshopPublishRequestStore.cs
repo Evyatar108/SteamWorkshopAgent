@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 
 namespace SteamWorkshopAgent;
@@ -54,7 +52,8 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
             approvedDigest,
             resultPath)
         {
-            PreviewDigest = PublishSnapshotPaths.FileDigest(snapshot.PreviewFile)
+            PreviewDigest = PublishSnapshotPaths.FileDigest(snapshot.PreviewFile),
+            ContentDigestFormat = ContentFingerprint.Format
         };
 
         await WriteOwnerOnlyJsonAsync(requestPath, request);
@@ -103,7 +102,8 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
             ContentDigest: digest,
             ResultPath: resultPath)
         {
-            PreviewDigest = PublishSnapshotPaths.FileDigest(snapshot.PreviewFile)
+            PreviewDigest = PublishSnapshotPaths.FileDigest(snapshot.PreviewFile),
+            ContentDigestFormat = ContentFingerprint.Format
         };
         await WriteOwnerOnlyJsonAsync(requestPath, request);
         return new WorkshopPublishPreparation(
@@ -119,6 +119,7 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
     {
         var request = await ReadForVerificationAsync(requestPath);
         await ThrowIfPreviouslySubmittedAsync(request.ResultPath);
+        ContentFingerprint.RequireFormat(request.ContentDigestFormat);
 
         if (request.ExpiresAtUtc <= DateTimeOffset.UtcNow)
             throw new InvalidOperationException("The Workshop publish request has expired. Create a fresh release plan.");
@@ -249,22 +250,7 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
         if (!Directory.Exists(root))
             throw new DirectoryNotFoundException($"Workshop content folder does not exist: {root}");
 
-        using var aggregate = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
-                     .OrderBy(path => Path.GetRelativePath(root, path), StringComparer.Ordinal))
-        {
-            var relative = Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/');
-            aggregate.AppendData(Encoding.UTF8.GetBytes(relative));
-            aggregate.AppendData([0]);
-
-            await using var stream = File.OpenRead(path);
-            var buffer = new byte[128 * 1024];
-            int read;
-            while ((read = await stream.ReadAsync(buffer)) > 0)
-                aggregate.AppendData(buffer.AsSpan(0, read));
-        }
-
-        var digest = Convert.ToHexString(aggregate.GetHashAndReset()).ToLowerInvariant();
+        var digest = await ContentFingerprint.ComputeAsync(root);
         if (approvedDigest != null && !string.Equals(digest, approvedDigest, StringComparison.Ordinal))
             throw new InvalidOperationException(
                 "Workshop content does not match the approved digest. Run publish-folder without --confirm and review the new plan.");

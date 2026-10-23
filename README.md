@@ -207,6 +207,13 @@ Tampered snapshots or previews are refused before native access. The same
 snapshot preparation applies to deployed-release and built-release requests.
 The caller's folder is never modified. Requests using old live paths must be
 prepared again; read-back remains available.
+Content digests use `sha256-manifest-v1`, shared with the companion. Files are
+ordered by ordinal, forward-slash relative path. After the UTF-8 domain header
+`SteamWorkshopAgent content manifest v1` plus NUL, each record contains a
+little-endian 32-bit UTF-8 path byte length, path bytes, little-endian 64-bit file
+length, and that file's raw 32-byte SHA-256. SHA-256 of the manifest is the
+64-hex `contentDigest`. Requests record `contentDigestFormat`; missing or other
+formats cannot be submitted. Regenerate old dry runs after upgrading.
 Missing, zero or mismatching
 `About/PublishedFileId.txt`, missing `About/About.xml`, invalid content or an
 empty change-note file is refused. The note gets no heading or prefix.

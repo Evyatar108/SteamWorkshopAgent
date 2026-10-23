@@ -118,6 +118,7 @@ public sealed record WorkshopPublishRequest(
     string ResultPath)
 {
     public string? PreviewDigest { get; init; }
+    public string? ContentDigestFormat { get; init; }
 }
 
 public sealed record WorkshopPublishPreparation(
