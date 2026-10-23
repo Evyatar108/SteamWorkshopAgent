@@ -35,8 +35,10 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
             PreserveTags: true,
             Visibility: null,
             plan.ChangeNote,
-            plan.Release.TagName,
-            await ResolveCommitAsync(plan.Mod.RepoPath, plan.Release.TagName),
+            plan.Release?.TagName ?? "not-applicable",
+            plan.Release is { } release
+                ? await ResolveCommitAsync(plan.Mod.RepoPath, release.TagName)
+                : "not-applicable",
             await ComputeContentDigestAsync(plan.ContentFolder),
             resultPath);
 

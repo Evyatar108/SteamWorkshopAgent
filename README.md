@@ -159,6 +159,29 @@ Source release builds always pass `BuildBridgeTools=false` so GitHub/Steam relea
 
 Publishes an already-built deployed mod folder through the same prepared-request and backend policy. This path does not rebuild the mod and does not refresh Workshop tags. Use it when a separate Release build has already produced the exact deployed folder that should be uploaded.
 
+`WorkshopPublishFolder` / `publish-folder` uploads an already-staged folder as
+is, without Git, a release tag, GitHub or a build:
+
+```powershell
+dotnet .\src\SteamWorkshopAgent\bin\Release\net10.0\SteamWorkshopAgent.dll publish-folder `
+  'C:\mods\StagedMod' --expect-id 123456789 --changenote-file 'C:\notes\release.txt'
+```
+
+Without `--confirm`, this only reads local files and prints the title from
+`About/About.xml`, item id, file count, SHA-256 content digest, preview size and
+exact change-note text. It sends nothing to Steam and writes nothing. Add
+`--confirm --backend standalone` (or `auto`) to use the existing owner/app-checked,
+fingerprinted prepared-request path. Missing, zero or mismatching
+`About/PublishedFileId.txt`, missing `About/About.xml`, invalid content or an
+empty change-note file is refused. The note gets no heading or prefix.
+Description, visibility and tags are untouched; `About/Preview.png` is uploaded
+as with deployed releases. The folder is never built or modified.
+
+Run records normally live in the platform's application-data directory. Set
+`STEAM_WORKSHOP_AGENT_DATA_ROOT` to an absolute path to isolate all agent run
+records and helper data (for example in a temporary directory for offline tests).
+Use the same setting in a companion process when using that fallback.
+
 `WorkshopPublishPrepared`
 
 Submits a still-valid prepared request through the detached helper. The request must live under the agent's run directory and its content fingerprint must still match.

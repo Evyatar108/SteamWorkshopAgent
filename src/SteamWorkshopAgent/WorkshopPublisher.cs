@@ -12,6 +12,26 @@ public sealed class WorkshopPublisher(
     WorkshopPublishRequestStore requestStore,
     SteamworksPublisher steamworksPublisher)
 {
+    public async Task<object> PublishFolderAsync(
+        string folder, ulong expectedId, string changeNoteFile, bool confirm = false, string backend = "auto")
+    {
+        if (backend.Trim().ToLowerInvariant() is not ("auto" or "standalone"))
+            throw new ArgumentException("Folder publishing supports only auto or standalone.", nameof(backend));
+        var plan = await workshopPlanner.CreateFolderPlanAsync(folder, expectedId, changeNoteFile);
+        if (!confirm)
+            return new WorkshopFolderPlan(
+                plan.Mod.ModName, expectedId,
+                Directory.EnumerateFiles(plan.ContentFolder, "*", SearchOption.AllDirectories).Count(),
+                await WorkshopPublishRequestStore.ComputeContentDigestAsync(plan.ContentFolder),
+                new FileInfo(plan.PreviewFile).Length, plan.ChangeNote);
+
+        Directory.CreateDirectory(plan.RunDirectory);
+        await File.WriteAllTextAsync(plan.VdfPath, plan.VdfContent);
+        await File.WriteAllTextAsync(Path.Combine(plan.RunDirectory, "plan.json"),
+            JsonSerializer.Serialize(plan, ToolJson.Options));
+        return await PublishFinalPlanAsync(plan, backend, steamUser: null);
+    }
+
     public async Task<object> PublishReleaseAsync(
         string repoPath,
         string tag,

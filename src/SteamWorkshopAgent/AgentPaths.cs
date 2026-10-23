@@ -8,6 +8,9 @@ public static class AgentPaths
     {
         get
         {
+            var configured = Environment.GetEnvironmentVariable("STEAM_WORKSHOP_AGENT_DATA_ROOT");
+            if (!string.IsNullOrWhiteSpace(configured))
+                return Path.GetFullPath(configured);
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             return Path.Combine(home, "Library", "Application Support", "SteamWorkshopAgent");
         }
