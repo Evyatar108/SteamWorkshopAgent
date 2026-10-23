@@ -242,10 +242,11 @@ All public item-details reads (including the creator check before publishing and
 post-publish verification) use the same reader. By default it POSTs directly to
 Steam's `GetPublishedFileDetails` API. Set
 `STEAM_WORKSHOP_AGENT_DETAILS_COMMAND` to a JSON array containing an executable
-and its arguments to route these reads through an external rate limiter:
+and its arguments to have that command make these reads instead, for example a
+proxy or cache you run yourself:
 
 ```powershell
-$env:STEAM_WORKSHOP_AGENT_DETAILS_COMMAND = '["python","C:\\tools\\steam_common.py","details"]'
+$env:STEAM_WORKSHOP_AGENT_DETAILS_COMMAND = '["C:\\tools\\workshop-details.exe"]'
 ```
 
 The published file id is appended as the last argument, without shell expansion.

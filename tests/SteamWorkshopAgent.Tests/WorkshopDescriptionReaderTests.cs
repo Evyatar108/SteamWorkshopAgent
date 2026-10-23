@@ -40,7 +40,7 @@ public sealed class WorkshopDescriptionReaderTests
             (_, _, _) =>
             {
                 calls++;
-                return Task.FromResult(Result(17, "", "throttle cooldown", timedOut));
+                return Task.FromResult(Result(17, "", "details unavailable", timedOut));
             });
 
         var error = await Record.ExceptionAsync(() => reader.GetDescriptionAsync("123456789"));
@@ -48,7 +48,7 @@ public sealed class WorkshopDescriptionReaderTests
         if (timedOut)
             Assert.IsType<TimeoutException>(error);
         else
-            Assert.Contains("throttle cooldown", Assert.IsType<InvalidOperationException>(error).Message);
+            Assert.Contains("details unavailable", Assert.IsType<InvalidOperationException>(error).Message);
         Assert.Equal(1, calls);
     }
 
