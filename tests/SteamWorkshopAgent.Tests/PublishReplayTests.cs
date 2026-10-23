@@ -70,15 +70,21 @@ public sealed class PublishReplayTests
     {
         var run = Path.Combine(runs, "run");
         // Keep run files outside the fingerprinted content.
-        var content = Path.Combine(fixture.Root, "1.6");
-        var preview = fixture.PreviewPath;
+        var content = Path.Combine(run, "snapshot", "content");
+        Directory.CreateDirectory(content);
+        File.WriteAllText(Path.Combine(content, "content.txt"), "Snapshot");
+        var preview = Path.Combine(content, "Preview.png");
+        File.Copy(fixture.PreviewPath, preview);
         Directory.CreateDirectory(run);
         var request = new WorkshopPublishRequest(
             1, Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(30),
             AgentPaths.RimWorldAppId, 123456789, 42, content, preview, "Test", null,
             false, true, null, "Update", "not-applicable", "not-applicable",
             await WorkshopPublishRequestStore.ComputeContentDigestAsync(content),
-            Path.Combine(run, "steamworks-result.json"));
+            Path.Combine(run, "steamworks-result.json"))
+        {
+            PreviewDigest = PublishSnapshotPaths.FileDigest(preview)
+        };
         await File.WriteAllTextAsync(Path.Combine(run, "steamworks-request.json"),
             JsonSerializer.Serialize(request, ToolJson.Options));
         return request;

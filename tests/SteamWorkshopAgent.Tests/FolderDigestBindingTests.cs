@@ -78,6 +78,48 @@ public sealed class FolderDigestBindingTests : IDisposable
         Assert.Equal(plan.ContentDigest, publishedRequest.ContentDigest);
     }
 
+    [Fact]
+    public async Task Submission_Uses_Verified_ReadOnly_Snapshot_When_Original_Changes()
+    {
+        var originalAssembly = Path.Combine(mod.Root, "1.6", "Assemblies", "DeployedTestMod.dll");
+        var publisher = Publisher(beforeSubmit: _ => File.WriteAllBytes(originalAssembly, [9, 8, 7]));
+        var note = Note();
+        var plan = Assert.IsType<WorkshopFolderPlan>(
+            await publisher.PublishFolderAsync(mod.Root, 123456789, note));
+
+        await publisher.PublishFolderAsync(mod.Root, 123456789, note,
+            confirm: true, expectedDigest: plan.ContentDigest);
+
+        Assert.Equal(1, publishCalls);
+        Assert.NotEqual(mod.Root, publishedRequest!.ContentFolder);
+        Assert.StartsWith(dataRoot, publishedRequest.ContentFolder);
+        Assert.StartsWith(publishedRequest.ContentFolder, publishedRequest.PreviewFile);
+        Assert.Equal(plan.ContentDigest,
+            await WorkshopPublishRequestStore.ComputeContentDigestAsync(publishedRequest.ContentFolder));
+        Assert.All(Directory.EnumerateFiles(publishedRequest.ContentFolder, "*", SearchOption.AllDirectories),
+            file => Assert.True((File.GetAttributes(file) & FileAttributes.ReadOnly) != 0));
+        Assert.Equal(new byte[] { 9, 8, 7 }, File.ReadAllBytes(originalAssembly));
+    }
+
+    [Fact]
+    public async Task Tampered_Snapshot_Is_Refused_By_Helper_Validation()
+    {
+        var publisher = Publisher(beforeSubmit: request =>
+        {
+            Assert.NotEqual(mod.Root, request.ContentFolder);
+            var file = Path.Combine(request.ContentFolder, "1.6", "Assemblies", "DeployedTestMod.dll");
+            File.SetAttributes(file, FileAttributes.Normal);
+            File.WriteAllBytes(file, [9, 8, 7]);
+        });
+        var note = Note();
+        var plan = Assert.IsType<WorkshopFolderPlan>(
+            await publisher.PublishFolderAsync(mod.Root, 123456789, note));
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            publisher.PublishFolderAsync(mod.Root, 123456789, note,
+                confirm: true, expectedDigest: plan.ContentDigest));
+        Assert.Contains("content changed", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -168,7 +210,8 @@ public sealed class FolderDigestBindingTests : IDisposable
             serviceType == typeof(WorkshopPublisher) ? publisher : null;
     }
 
-    private WorkshopPublisher Publisher(Action? duringDetails = null)
+    private WorkshopPublisher Publisher(
+        Action? duringDetails = null, Action<WorkshopPublishRequest>? beforeSubmit = null)
     {
         var runner = new ProcessRunner();
         var environment = new SteamEnvironment(runner);
@@ -192,6 +235,7 @@ public sealed class FolderDigestBindingTests : IDisposable
             SubmitPrepared = async path =>
             {
                 publishCalls++;
+                beforeSubmit?.Invoke(await store.ReadForVerificationAsync(path));
                 publishedRequest = await store.ReadAndValidateAsync(path);
                 return new WorkshopPublishBackendResult(
                     "fake-publisher", "completed", true, true, true, false, false, false,
@@ -217,6 +261,10 @@ public sealed class FolderDigestBindingTests : IDisposable
         Environment.SetEnvironmentVariable("STEAM_WORKSHOP_AGENT_DATA_ROOT", previousDataRoot);
         mod.Dispose();
         if (Directory.Exists(dataRoot))
+        {
+            foreach (var file in Directory.EnumerateFiles(dataRoot, "*", SearchOption.AllDirectories))
+                File.SetAttributes(file, FileAttributes.Normal);
             Directory.Delete(dataRoot, recursive: true);
+        }
     }
 }

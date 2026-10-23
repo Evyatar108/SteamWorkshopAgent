@@ -199,6 +199,14 @@ checks. A change during an external details-command wait is refused rather than
 silently approved. Review a new dry run before approving changed bytes.
 
 The existing owner/app-checked, fingerprinted prepared-request path is reused.
+Prepared uploads copy content and preview into a private run-owned `snapshot`
+directory, verify the copied content against the approved digest, then mark its
+files read-only. Requests and both native submitters use only snapshot paths.
+Changes to the caller's folder after preparation do not change the upload.
+Tampered snapshots or previews are refused before native access. The same
+snapshot preparation applies to deployed-release and built-release requests.
+The caller's folder is never modified. Requests using old live paths must be
+prepared again; read-back remains available.
 Missing, zero or mismatching
 `About/PublishedFileId.txt`, missing `About/About.xml`, invalid content or an
 empty change-note file is refused. The note gets no heading or prefix.

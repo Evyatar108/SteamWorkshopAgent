@@ -24,7 +24,9 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
         if (expectedCreatorSteamId == 0)
             throw new InvalidOperationException("The current Workshop item creator could not be verified.");
 
-        var contentDigest = await ComputeContentDigestAsync(plan.ContentFolder, expectedDigest);
+        var approvedDigest = await ComputeContentDigestAsync(plan.ContentFolder, expectedDigest);
+        var snapshot = await CreateSnapshotAsync(
+            plan.RunDirectory, plan.ContentFolder, plan.PreviewFile, approvedDigest);
         Directory.CreateDirectory(plan.RunDirectory);
         var requestId = Guid.NewGuid().ToString("N");
         var requestPath = Path.Combine(plan.RunDirectory, "steamworks-request.json");
@@ -37,8 +39,8 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
             AgentPaths.RimWorldAppId,
             publishedFileId,
             expectedCreatorSteamId,
-            Path.GetFullPath(plan.ContentFolder),
-            Path.GetFullPath(plan.PreviewFile),
+            snapshot.ContentFolder,
+            snapshot.PreviewFile,
             plan.Mod.ModName,
             plan.UpdateDescription ? plan.Mod.Description ?? "" : null,
             plan.UpdateDescription,
@@ -49,8 +51,11 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
             plan.Release is { } release
                 ? await ResolveCommitAsync(plan.Mod.RepoPath, release.TagName)
                 : "not-applicable",
-            contentDigest,
-            resultPath);
+            approvedDigest,
+            resultPath)
+        {
+            PreviewDigest = PublishSnapshotPaths.FileDigest(snapshot.PreviewFile)
+        };
 
         await WriteOwnerOnlyJsonAsync(requestPath, request);
         return new WorkshopPublishPreparation(
@@ -73,6 +78,8 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
 
         var runDirectory = AgentPaths.NewRunDirectory("SteamWorkshopAgent", "private-validation");
         Directory.CreateDirectory(runDirectory);
+        var digest = await ComputeContentDigestAsync(contentFolder);
+        var snapshot = await CreateSnapshotAsync(runDirectory, contentFolder, previewFile, digest);
         var requestPath = Path.Combine(runDirectory, "steamworks-request.json");
         var resultPath = Path.Combine(runDirectory, "steamworks-result.json");
         var request = new WorkshopPublishRequest(
@@ -83,8 +90,8 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
             AppId: AgentPaths.RimWorldAppId,
             publishedFileId,
             ExpectedCreatorSteamId: creatorSteamId,
-            ContentFolder: Path.GetFullPath(contentFolder),
-            PreviewFile: Path.GetFullPath(previewFile),
+            ContentFolder: snapshot.ContentFolder,
+            PreviewFile: snapshot.PreviewFile,
             Title: "SteamWorkshopAgent Private Validation",
             Description: "Private validation item for the local SteamWorkshopAgent release pipeline.",
             UpdateDescription: true,
@@ -93,8 +100,11 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
             ChangeNote: "Private SteamWorkshopAgent validation",
             SourceTag: "private-validation",
             SourceCommit: "not-applicable",
-            ContentDigest: await ComputeContentDigestAsync(contentFolder),
-            ResultPath: resultPath);
+            ContentDigest: digest,
+            ResultPath: resultPath)
+        {
+            PreviewDigest = PublishSnapshotPaths.FileDigest(snapshot.PreviewFile)
+        };
         await WriteOwnerOnlyJsonAsync(requestPath, request);
         return new WorkshopPublishPreparation(
             "steamworks-standalone",
@@ -116,12 +126,64 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
             throw new DirectoryNotFoundException($"Workshop content folder does not exist: {request.ContentFolder}");
         if (!File.Exists(request.PreviewFile))
             throw new FileNotFoundException("Workshop preview file does not exist.", request.PreviewFile);
+        PublishSnapshotPaths.Validate(requestPath, request.ContentFolder, request.PreviewFile);
 
         var digest = await ComputeContentDigestAsync(request.ContentFolder);
         if (!string.Equals(digest, request.ContentDigest, StringComparison.Ordinal))
             throw new InvalidOperationException("Workshop content changed after the publish request was prepared.");
+        if (!string.Equals(PublishSnapshotPaths.FileDigest(request.PreviewFile),
+                request.PreviewDigest, StringComparison.Ordinal))
+            throw new InvalidOperationException("Workshop preview changed after the publish request was prepared.");
 
         return request;
+    }
+
+    private async Task<(string ContentFolder, string PreviewFile)> CreateSnapshotAsync(
+        string runDirectory, string contentFolder, string previewFile, string approvedDigest)
+    {
+        var source = Path.GetFullPath(contentFolder);
+        var run = Path.GetFullPath(runDirectory);
+        var runsRoot = Path.GetFullPath(runsDirectoryOverride ?? AgentPaths.RunsDirectory)
+            + Path.DirectorySeparatorChar;
+        if (!run.StartsWith(runsRoot, AgentDataPath.PathComparison)
+            || run.StartsWith(Path.TrimEndingDirectorySeparator(source) + Path.DirectorySeparatorChar,
+                AgentDataPath.PathComparison))
+            throw new InvalidOperationException("Upload snapshots require a run directory under the agent data root, outside the content folder.");
+        PublishSnapshotPaths.EnsureNoLinks(source);
+        var snapshotRoot = Path.Combine(run, "snapshot");
+        if (Directory.Exists(snapshotRoot))
+            throw new InvalidOperationException("This run already has an upload snapshot. Prepare a new request.");
+        if (OperatingSystem.IsWindows())
+            Directory.CreateDirectory(snapshotRoot);
+        else
+            Directory.CreateDirectory(snapshotRoot, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        var snapshotContent = Path.Combine(snapshotRoot, "content");
+        Directory.CreateDirectory(snapshotContent);
+        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        {
+            var destination = Path.Combine(snapshotContent, Path.GetRelativePath(source, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Copy(file, destination, overwrite: false);
+        }
+        var relativePreview = Path.GetRelativePath(source, Path.GetFullPath(previewFile));
+        string snapshotPreview;
+        if (relativePreview != ".." && !relativePreview.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            && !Path.IsPathRooted(relativePreview))
+            snapshotPreview = Path.Combine(snapshotContent, relativePreview);
+        else
+        {
+            PublishSnapshotPaths.EnsureNoLinks(previewFile);
+            snapshotPreview = Path.Combine(snapshotRoot, "preview.png");
+            File.Copy(previewFile, snapshotPreview, overwrite: false);
+        }
+        await ComputeContentDigestAsync(snapshotContent, approvedDigest);
+        foreach (var file in Directory.EnumerateFiles(snapshotRoot, "*", SearchOption.AllDirectories))
+        {
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(file, UnixFileMode.UserRead);
+            File.SetAttributes(file, File.GetAttributes(file) | FileAttributes.ReadOnly);
+        }
+        return (snapshotContent, snapshotPreview);
     }
 
     private static async Task ThrowIfPreviouslySubmittedAsync(string resultPath)

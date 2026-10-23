@@ -282,9 +282,13 @@ public sealed class SteamWorkshopBridgeTools
                 previous?.OutcomeDefinitive ?? false, previous?.FallbackAllowed ?? false);
         }
 
+        PublishSnapshotPaths.Validate(requestPath, request.ContentFolder, request.PreviewFile);
         var digest = await ComputeContentDigestAsync(request.ContentFolder).ConfigureAwait(false);
         if (!string.Equals(digest, request.ContentDigest, StringComparison.Ordinal))
             throw new InvalidOperationException("Workshop content changed after the publish request was prepared.");
+        if (!string.Equals(PublishSnapshotPaths.FileDigest(request.PreviewFile),
+                request.PreviewDigest, StringComparison.Ordinal))
+            throw new InvalidOperationException("Workshop preview changed after the publish request was prepared.");
         return request;
     }
 
@@ -445,6 +449,7 @@ public sealed class SteamWorkshopBridgeTools
 
     private sealed class PublishRequest
     {
+        public string PreviewDigest { get; set; }
         public int SchemaVersion { get; set; }
         public string RequestId { get; set; }
         public DateTimeOffset ExpiresAtUtc { get; set; }

@@ -34,8 +34,9 @@ public sealed class WorkshopFolderTests
         Assert.False(Directory.Exists(plan.RunDirectory));
 
         // An explicit temporary run directory keeps all test writes isolated.
-        var preparation = await new WorkshopPublishRequestStore(new ProcessRunner())
-            .CreateAsync(plan with { RunDirectory = Path.Combine(mod.Root, "test-runs") }, 42);
+        using var runs = TestModRepo.CreateDeployed();
+        var preparation = await new WorkshopPublishRequestStore(new ProcessRunner(), runs.Root)
+            .CreateAsync(plan with { RunDirectory = Path.Combine(runs.Root, "run") }, 42);
         Assert.Equal(note, preparation.Request.ChangeNote);
         Assert.Equal("not-applicable", preparation.Request.SourceCommit);
         Assert.Null(preparation.Request.Description);

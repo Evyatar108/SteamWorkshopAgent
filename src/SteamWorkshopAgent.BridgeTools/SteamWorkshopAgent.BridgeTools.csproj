@@ -18,6 +18,7 @@
   <ItemGroup>
     <Compile Include="..\SteamWorkshopAgent\AgentDataPath.cs" Link="AgentDataPath.cs" />
     <Compile Include="..\SteamWorkshopAgent\PublishReplayGuard.cs" Link="PublishReplayGuard.cs" />
+    <Compile Include="..\SteamWorkshopAgent\PublishSnapshotPaths.cs" Link="PublishSnapshotPaths.cs" />
     <Reference Include="RimBridgeServer.Sdk">
       <HintPath>$(RimBridgeAssembliesDir)/RimBridgeServer.Sdk.dll</HintPath>
       <Private>false</Private>

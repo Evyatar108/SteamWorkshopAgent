@@ -115,7 +115,10 @@ public sealed record WorkshopPublishRequest(
     string SourceTag,
     string SourceCommit,
     string ContentDigest,
-    string ResultPath);
+    string ResultPath)
+{
+    public string? PreviewDigest { get; init; }
+}
 
 public sealed record WorkshopPublishPreparation(
     string Backend,
