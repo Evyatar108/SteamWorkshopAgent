@@ -3,13 +3,50 @@ using System.Text.Json;
 
 namespace SteamWorkshopAgent;
 
-public sealed class WorkshopDescriptionReader(WorkshopTargetResolver targetResolver)
+public sealed class WorkshopDescriptionReader
 {
     private const string DetailsApi = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/";
+    internal static readonly TimeSpan DetailsCommandTimeout = TimeSpan.FromMinutes(25);
+    private readonly WorkshopTargetResolver targetResolver;
+    private readonly Func<string?> getDetailsCommand;
+    private readonly Func<string, IReadOnlyList<string>, TimeSpan, Task<ProcessResult>> runCommand;
+
+    public WorkshopDescriptionReader(WorkshopTargetResolver targetResolver)
+        : this(targetResolver,
+            () => Environment.GetEnvironmentVariable("STEAM_WORKSHOP_AGENT_DETAILS_COMMAND"),
+            (file, args, timeout) => new ProcessRunner().RunAsync(
+                file, args, timeout: timeout, maxOutputChars: 16 * 1024 * 1024))
+    {
+    }
+
+    internal WorkshopDescriptionReader(
+        WorkshopTargetResolver targetResolver,
+        Func<string?> getDetailsCommand,
+        Func<string, IReadOnlyList<string>, TimeSpan, Task<ProcessResult>> runCommand)
+    {
+        this.targetResolver = targetResolver;
+        this.getDetailsCommand = getDetailsCommand;
+        this.runCommand = runCommand;
+    }
 
     public async Task<WorkshopDescriptionSnapshot> GetDescriptionAsync(string modPathOrPublishedFileId)
     {
         var target = await targetResolver.ResolveDescriptionTargetAsync(modPathOrPublishedFileId);
+        var commandJson = getDetailsCommand();
+        if (!string.IsNullOrWhiteSpace(commandJson))
+        {
+            var command = ParseDetailsCommand(commandJson);
+            var result = await runCommand(command[0],
+                command.Skip(1).Append(target.PublishedFileId.ToString()).ToArray(), DetailsCommandTimeout);
+            if (result.TimedOut)
+                throw new TimeoutException($"Workshop details command timed out after {DetailsCommandTimeout.TotalMinutes} minutes. It was not retried.");
+            if (result.ExitCode != 0)
+                throw new InvalidOperationException($"Workshop details command failed with exit code {result.ExitCode}: {result.Stderr}");
+            if (result.StdoutTruncated)
+                throw new InvalidOperationException("Workshop details command returned too much output; refusing truncated JSON.");
+            return ParseSnapshot(result.Stdout, target);
+        }
+
         using var httpClient = new HttpClient();
         using var response = await httpClient.PostAsync(
             DetailsApi,
@@ -21,6 +58,24 @@ public sealed class WorkshopDescriptionReader(WorkshopTargetResolver targetResol
         response.EnsureSuccessStatusCode();
         var json = await response.Content.ReadAsStringAsync();
         return ParseSnapshot(json, target);
+    }
+
+    internal static string[] ParseDetailsCommand(string json)
+    {
+        try
+        {
+            var command = JsonSerializer.Deserialize<string[]>(json);
+            if (command is not { Length: > 0 } || string.IsNullOrWhiteSpace(command[0])
+                || command.Any(argument => argument is null))
+                throw new JsonException();
+            return command;
+        }
+        catch (JsonException exception)
+        {
+            throw new ArgumentException(
+                "STEAM_WORKSHOP_AGENT_DETAILS_COMMAND must be a JSON array of strings containing an executable and optional arguments.",
+                exception);
+        }
     }
 
     public static WorkshopDescriptionSnapshot ParseSnapshot(string json, WorkshopDescriptionTarget target)

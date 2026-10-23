@@ -181,6 +181,22 @@ Sets category tags on an existing RimWorld Workshop item. Pass either a numeric 
 
 Reads the current main Steam Workshop item title and description. Pass either a numeric Workshop id or a local mod path with `About/PublishedFileId.txt`. The result includes the raw editable description text, character count, title, update timestamp, visibility, tags returned by Steam, and the public Workshop URL.
 
+All public item-details reads (including the creator check before publishing and
+post-publish verification) use the same reader. By default it POSTs directly to
+Steam's `GetPublishedFileDetails` API. Set
+`STEAM_WORKSHOP_AGENT_DETAILS_COMMAND` to a JSON array containing an executable
+and its arguments to route these reads through an external rate limiter:
+
+```powershell
+$env:STEAM_WORKSHOP_AGENT_DETAILS_COMMAND = '["python","C:\\tools\\steam_common.py","details"]'
+```
+
+The published file id is appended as the last argument, without shell expansion.
+The command must print the unmodified Steam API JSON response to stdout and send
+diagnostics to stderr. A nonzero exit (reported with stderr), invalid JSON, or a
+25-minute timeout fails the operation without retry or direct-HTTP fallback.
+Verification waits for each call to finish before its next polling interval.
+
 `WorkshopUpdateDescription`
 
 Updates the main Steam Workshop item description field. Pass either a numeric Workshop id or a local mod path with `About/PublishedFileId.txt`, plus the complete new description text. This path writes a small VDF containing `appid`, `publishedfileid`, and `description`; it intentionally omits `contentfolder`, `previewfile`, and tags so the upload is metadata-only. Title and changenote are optional and omitted by default.
