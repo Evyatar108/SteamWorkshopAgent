@@ -72,6 +72,8 @@ Native-library discovery starts at the Steam root. On macOS that is `~/Library/A
 
 Run records use `~/Library/Application Support/SteamWorkshopAgent` on macOS and `%LOCALAPPDATA%\SteamWorkshopAgent` on Windows. `STEAM_WORKSHOP_AGENT_DATA_ROOT` overrides both, for the agent and the companion. PATH discovery honors Windows `PATHEXT`.
 
+Steamworks packs callback structs to 8 bytes on Windows and to 4 bytes on macOS and Linux. The publisher and the tag updater decode the create and submit callbacks with the platform layout.
+
 ## Build and test
 
 ```sh
