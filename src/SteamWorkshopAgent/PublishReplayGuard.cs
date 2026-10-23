@@ -7,16 +7,40 @@ namespace SteamWorkshopAgent;
 internal static class PublishReplayGuard
 {
     internal static void EnsureCanSubmit(
-        string? stage, bool submissionStarted, bool outcomeDefinitive, bool fallbackAllowed)
+        string? stage, bool success, bool submissionStarted, bool outcomeDefinitive)
     {
-        if (stage is null || string.IsNullOrWhiteSpace(stage) || submissionStarted
-            || stage.StartsWith("submit-intent", StringComparison.OrdinalIgnoreCase)
-            || stage.StartsWith("submitted", StringComparison.OrdinalIgnoreCase)
-            || stage.StartsWith("ambiguous", StringComparison.OrdinalIgnoreCase)
-            || stage.StartsWith("completed", StringComparison.OrdinalIgnoreCase)
-            || (!outcomeDefinitive && !fallbackAllowed))
+        if (!IsProvenPreSubmitFailure(stage, success, submissionStarted, outcomeDefinitive))
             throw new InvalidOperationException(
                 "This request already records a possible or completed submission (or an unreadable result). " +
                 "Read back the Workshop item instead of submitting this request again.");
+    }
+
+    // Only these backend failures prove SubmitItemUpdate did not start an upload.
+    // Unknown stages and inconsistent flags fail closed, even if fallback was requested.
+    internal static bool IsProvenPreSubmitFailure(
+        string? stage, bool success, bool submissionStarted, bool outcomeDefinitive)
+    {
+        if (stage is null || success || submissionStarted || !outcomeDefinitive)
+            return false;
+        switch (stage.ToLowerInvariant())
+        {
+            case "preflight":
+            case "process-isolation":
+            case "steam-init":
+            case "session":
+            case "ownership":
+            case "app-id":
+            case "start-update":
+            case "set-title":
+            case "set-description":
+            case "set-preview":
+            case "set-content":
+            case "set-visibility":
+            case "setup":
+            case "submit": // Invalid API call handle, explicitly reported as not submitted.
+                return true;
+            default:
+                return false;
+        }
     }
 }

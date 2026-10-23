@@ -49,7 +49,13 @@ public sealed class SteamworksPublisher(
 
             var persistedResult = await TryReadPersistedResultAsync(request.ResultPath);
             if (persistedResult != null)
-                return persistedResult;
+                return persistedResult.FallbackAllowed && File.Exists(PublishRequestClaim.ClaimPath(requestPath))
+                    ? persistedResult with
+                    {
+                        FallbackAllowed = false,
+                        Message = persistedResult.Message + " The helper did not hand back its claim. Read back the Workshop item."
+                    }
+                    : persistedResult;
 
             var claimed = File.Exists(PublishRequestClaim.ClaimPath(requestPath));
             var failure = Failure(
@@ -125,7 +131,20 @@ public sealed class SteamworksPublisher(
     {
         using var claim = PublishRequestClaim.Acquire(requestPath, requestStore.RunsDirectory);
         var request = await requestStore.ReadAndValidateAsync(requestPath);
-        return await submit(request);
+        var result = await submit(request);
+        var provenPreSubmit = PublishReplayGuard.IsProvenPreSubmitFailure(
+            result.Stage, result.Success, result.SubmissionStarted, result.OutcomeDefinitive);
+        if (!provenPreSubmit && result.FallbackAllowed)
+            result = result with
+            {
+                FallbackAllowed = false,
+                Message = result.Message + " The outcome does not prove submission never started. Read back the Workshop item."
+            };
+        // Final persistence occurs after native cleanup. Intermediate markers
+        // remain persisted inside the backend; a cleanup exception cannot hand back ownership.
+        await claim.PersistResultAsync(result.Stage, result.Success, result.SubmissionStarted,
+            result.OutcomeDefinitive, () => requestStore.WriteResultAsync(request.ResultPath, result));
+        return result;
     }
 
     private async Task<WorkshopPublishBackendResult> PublishNativeAsync(
@@ -324,18 +343,15 @@ public sealed class SteamworksPublisher(
 
             return await PersistAsync(Failure(
                 request, requestPath, "exception", false, false, false, null, null,
-                exception.Message, stopwatch.ElapsedMilliseconds));
+                exception.Message, stopwatch.ElapsedMilliseconds, fallbackAllowed: false) with
+            {
+                OutcomeDefinitive = false
+            });
         }
     }
 
     private async Task<WorkshopPublishBackendResult> PersistAsync(WorkshopPublishBackendResult result)
     {
-        if (result.FallbackAllowed)
-            result = result with
-            {
-                FallbackAllowed = false,
-                Message = result.Message + " This attempt holds a durable claim. Read back the Workshop item before any recovery."
-            };
         await requestStore.WriteResultAsync(result.ResultPath, result);
         return result;
     }

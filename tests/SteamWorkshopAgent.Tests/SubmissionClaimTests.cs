@@ -77,6 +77,137 @@ public sealed class SubmissionClaimTests
         }
     }
 
+    [Theory]
+    [InlineData("steam-init", true)]
+    [InlineData("session", true)]
+    [InlineData("setup", true)]
+    [InlineData("ownership", false)]
+    public async Task Proven_PreSubmit_Failure_Is_Persisted_Before_Companion_Style_Claim(
+        string stage, bool fallbackAllowed)
+    {
+        using var fixture = TestModRepo.CreateDeployed();
+        var path = await CreateRequestAsync(fixture.Root);
+        var runner = new ProcessRunner();
+        var store = new WorkshopPublishRequestStore(runner, Path.Combine(fixture.Root, "runs"));
+        var publisher = new SteamworksPublisher(new SteamEnvironment(runner), runner, store);
+        var result = await publisher.PublishClaimedAsync(path, async request =>
+        {
+            var failure = Receipt(request, path, stage, false, true, fallbackAllowed);
+            await store.WriteResultAsync(request.ResultPath, failure);
+            Assert.Throws<InvalidOperationException>(() => PublishRequestClaim.Acquire(path, store.RunsDirectory));
+            return failure;
+        });
+
+        Assert.Equal(fallbackAllowed, result.FallbackAllowed);
+        Assert.False(File.Exists(PublishRequestClaim.ClaimPath(path)));
+        var persisted = JsonSerializer.Deserialize<WorkshopPublishBackendResult>(
+            File.ReadAllText(result.ResultPath), ToolJson.Options)!;
+        Assert.Equal(result, persisted);
+        using var companionClaim = PublishRequestClaim.Acquire(path, store.RunsDirectory);
+        Assert.Equal(result.PublishedFileId, (await store.ReadAndValidateAsync(path)).PublishedFileId);
+    }
+
+    [Theory]
+    [InlineData("submit-intent", false, false)]
+    [InlineData("submit-intent", false, true)]
+    [InlineData("submitted", true, false)]
+    [InlineData("ambiguous", false, false)]
+    [InlineData("completed", true, true)]
+    [InlineData("callback-timeout", true, false)]
+    [InlineData("callback-timeout", false, true)]
+    [InlineData("helper-timeout", false, false)]
+    [InlineData("exception", false, true)]
+    [InlineData("unknown", false, true)]
+    [InlineData("steam-init", false, false)]
+    public async Task Uncertain_Or_Submitted_Result_Keeps_Claim(
+        string stage, bool started, bool definitive)
+    {
+        using var fixture = TestModRepo.CreateDeployed();
+        var path = await CreateRequestAsync(fixture.Root);
+        var runner = new ProcessRunner();
+        var store = new WorkshopPublishRequestStore(runner, Path.Combine(fixture.Root, "runs"));
+        var publisher = new SteamworksPublisher(new SteamEnvironment(runner), runner, store);
+        var result = await publisher.PublishClaimedAsync(path, request =>
+            Task.FromResult(Receipt(request, path, stage, started, definitive, true)));
+
+        Assert.False(result.FallbackAllowed);
+        Assert.True(File.Exists(PublishRequestClaim.ClaimPath(path)));
+        var refusal = Assert.Throws<InvalidOperationException>(() =>
+            PublishRequestClaim.Acquire(path, store.RunsDirectory));
+        Assert.Contains("Read back", refusal.Message);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.ReadAndValidateAsync(path));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Interrupted_Backend_Keeps_Claim_Even_With_PreSubmit_Receipt(bool persistReceipt)
+    {
+        using var fixture = TestModRepo.CreateDeployed();
+        var path = await CreateRequestAsync(fixture.Root);
+        var runner = new ProcessRunner();
+        var store = new WorkshopPublishRequestStore(runner, Path.Combine(fixture.Root, "runs"));
+        var publisher = new SteamworksPublisher(new SteamEnvironment(runner), runner, store);
+        await Assert.ThrowsAsync<IOException>(() => publisher.PublishClaimedAsync(path, async request =>
+        {
+            if (persistReceipt)
+                await store.WriteResultAsync(request.ResultPath,
+                    Receipt(request, path, "steam-init", false, true, true));
+            throw new IOException("Simulated backend interruption before hand-back.");
+        }));
+        Assert.True(File.Exists(PublishRequestClaim.ClaimPath(path)));
+        Assert.Throws<InvalidOperationException>(() => PublishRequestClaim.Acquire(path, store.RunsDirectory));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => publisher.PublishPreparedAsync(path));
+    }
+
+    [Fact]
+    public async Task Failed_Result_Persistence_Never_Releases_Claim()
+    {
+        using var fixture = TestModRepo.CreateDeployed();
+        var path = await CreateRequestAsync(fixture.Root);
+        var runner = new ProcessRunner();
+        var store = new WorkshopPublishRequestStore(runner, Path.Combine(fixture.Root, "runs"));
+        var publisher = new SteamworksPublisher(new SteamEnvironment(runner), runner, store);
+        FileStream? lockedReceipt = null;
+        try
+        {
+            await Assert.ThrowsAsync<IOException>(() => publisher.PublishClaimedAsync(path, value =>
+            {
+                lockedReceipt = new FileStream(value.ResultPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
+                return Task.FromResult(Receipt(value, path, "steam-init", false, true, true));
+            }));
+            Assert.True(File.Exists(PublishRequestClaim.ClaimPath(path)));
+        }
+        finally
+        {
+            lockedReceipt?.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Released_Claim_Cannot_Delete_A_New_Owners_Claim()
+    {
+        using var fixture = TestModRepo.CreateDeployed();
+        var path = await CreateRequestAsync(fixture.Root);
+        var runner = new ProcessRunner();
+        var store = new WorkshopPublishRequestStore(runner, Path.Combine(fixture.Root, "runs"));
+        var request = await store.ReadAndValidateAsync(path);
+        using var original = PublishRequestClaim.Acquire(path, store.RunsDirectory);
+        await original.PersistResultAsync("session", false, false, true, () =>
+            store.WriteResultAsync(request.ResultPath, Receipt(request, path, "session", false, true, true)));
+        using var next = PublishRequestClaim.Acquire(path, store.RunsDirectory);
+        var persistedAgain = false;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            original.PersistResultAsync("session", false, false, true, () =>
+            {
+                persistedAgain = true;
+                return Task.CompletedTask;
+            }));
+        original.Dispose();
+        Assert.False(persistedAgain);
+        Assert.True(File.Exists(PublishRequestClaim.ClaimPath(path)));
+    }
+
     [Fact]
     public async Task Tampered_Snapshot_Is_Refused_By_Real_Helper_Before_Native_Load()
     {
@@ -111,6 +242,13 @@ public sealed class SubmissionClaimTests
         Assert.Contains("Read back", helperError.Message);
         Assert.True(File.Exists(PublishRequestClaim.ClaimPath(path)));
     }
+
+    private static WorkshopPublishBackendResult Receipt(
+        WorkshopPublishRequest request, string path, string stage, bool started,
+        bool definitive, bool fallbackAllowed) =>
+        new("fake", stage, false, started, definitive, fallbackAllowed, false, false,
+            null, null, request.PublishedFileId, null, false, null, 0, 0, 0,
+            path, request.ResultPath, "", "Fake backend only.");
 
     private static async Task<string> CreateRequestAsync(string root)
     {
