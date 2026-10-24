@@ -14,11 +14,11 @@ all: build
 
 .PHONY: build
 build:
-	dotnet build $(SLN) -c Release
+	@python3 scripts/check.py build "$(SLN)"
 
 .PHONY: test
 test:
-	dotnet test $(SLN)
+	@python3 scripts/check.py test "$(SLN)"
 
 .PHONY: install
 install:

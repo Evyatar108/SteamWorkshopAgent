@@ -49,7 +49,7 @@ SteamWorkshopAgent does not store Steam passwords or Steam Guard codes. It passe
 export STEAMCMD_USER=your_steam_username
 ```
 
-When running as an MCP server, the client process may not inherit your terminal environment. If `steamUser` is omitted and `STEAMCMD_USER` is missing from the MCP process environment, the agent also probes your configured shell startup files and reads only that username value.
+When running as an MCP server, the client process may not inherit your terminal environment. If `steamUser` is omitted and `STEAMCMD_USER` is missing from the MCP process environment, the agent also probes your configured shell startup files and reads only that username value. The probe disables shell job control before startup so it preserves the calling terminal's input ownership.
 
 Normal publishing does not use SteamCMD authentication. If the Steamworks and RimWorld fallback paths are unavailable and you deliberately select `backend=steamcmd`, authenticate SteamCMD in a real terminal:
 
@@ -67,12 +67,15 @@ That token is used only by the explicit SteamCMD fallback. Never pass passwords 
 
 Routine updates preserve the Workshop item's existing category tags. The separate tag maintenance tool calls RimWorld's local Steamworks UGC path, using RimWorld app id `294100` and the native Steam API library bundled with the installed RimWorld app. It requires the desktop Steam client session to be logged on from Steamworks' point of view.
 
-## Build And Test
+## Build and test
 
 ```sh
-dotnet build SteamWorkshopAgent.slnx -c Release
-dotnet test SteamWorkshopAgent.slnx
+make build
+make test
 ```
+
+These commands require Python 3.11 or newer. They print `ok` on success and save full output under `artifacts/logs/`.
+The test command includes a macOS terminal regression. It checks that the real status command reads the username from `.zshrc` without taking the parent terminal's foreground ownership.
 
 ## Local Install
 

@@ -198,7 +198,9 @@ public sealed class SteamEnvironment(ProcessRunner processRunner)
         var shellName = Path.GetFileName(shellPath);
 
         return shellName is "zsh" or "bash"
-            ? ["-lic", command]
+            // Keep interactive startup files, but disable job control before startup.
+            // Otherwise zsh can leave this MCP's group owning the provider's terminal.
+            ? ["+m", "-lic", command]
             : shellName is "sh" or "ksh"
                 ? ["-lc", command]
                 : ["-c", command];
