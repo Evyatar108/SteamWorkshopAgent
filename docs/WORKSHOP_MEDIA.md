@@ -20,12 +20,20 @@ SteamWorkshopAgent visibility 123456 public --confirm --expect-digest <approved-
 Both plan and confirm make native full-state lookups. Each helper goes through
 `run`, which holds the machine-wide throttle lock throughout the helper. Before
 each outbound query **and** submission, the helper requests a grant through a
-stderr/stdin handshake. The wrapper waits, records that request durably, then
-grants it. Query and submit are therefore two separately spaced/countable
+stderr/stdin V2 handshake. Each request has a fresh random identifier. The
+wrapper echoes it in the grant and accepts a matching consumed acknowledgement
+before another request. Repeated identifiers and overlapping requests fail.
+The helper rejects stale, unsolicited or duplicate replies as native failures,
+so an extra marker cannot bank permission for a later query or submit. The
+wrapper waits, records that request durably, then grants it. Query and submit
+are therefore two separately spaced/countable
 requests even in one helper. Never point the wrapper at a command that acquires
 the throttle again. Query results bypass the local cache. Query timeout is 30
-seconds, submission timeout is 90 seconds and the outer helper timeout is three
-minutes. Existing content-publishing commands still use the separate
+seconds and submission timeout is 90 seconds. One absolute three-minute
+deadline covers the outer operation, including acquiring the lock, throttle
+waits, pipe reads and helper exit. A throttle delay beyond that deadline aborts
+the pending grant, kills the helper and releases the lock without recording
+the ungranted request. Existing content-publishing commands still use the separate
 `STEAM_WORKSHOP_AGENT_DETAILS_COMMAND` configuration; media commands no longer
 need a public-details lookup.
 
@@ -61,6 +69,8 @@ without starting a Steam failure cooldown. A refusal before the first request
 records no request; a changed-state refusal after a successful query keeps that
 query's count/time but does not mark it as a failed Steam request. A network
 failure or uncertain submission after a grant still starts the failure cooldown.
+A non-OK Steam item result is a native failure, not a local approval refusal.
+Protocol failures also enter the failure path, including before a first grant.
 
 Visibility is a separate command, supporting public, friends, private and unlisted.
 It does not prove the page has suitable graphics. Keep new pages private until

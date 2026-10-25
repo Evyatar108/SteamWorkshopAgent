@@ -75,11 +75,14 @@ internal sealed partial class SteamworksNativeClient
         // SteamUGCDetails_t's fixed prefix: id, result, type, creator/consumer
         // app IDs, title[129], description[8000], owner, three timestamps,
         // visibility. The SDK uses pack 8 on Windows and pack 4 elsewhere.
+        var result = Marshal.ReadInt32(details, 8);
+        if (result != 1)
+            throw new SteamNativeFailureException($"Steam item query failed: {FormatResult(result)}.");
         var ownerOffset = windows ? 8160 : 8156;
         var item = unchecked((ulong)Marshal.ReadInt64(details));
         var creator = unchecked((ulong)Marshal.ReadInt64(details, ownerOffset));
         var visibility = Marshal.ReadInt32(details, ownerOffset + 20);
-        if (item != expectedItem || Marshal.ReadInt32(details, 8) != 1
+        if (item != expectedItem
             || Marshal.ReadInt32(details, 20) != AgentPaths.RimWorldAppId
             || creator == 0 || visibility is < 0 or > 3)
             throw new MediaRefusalException("Cannot verify current item, creator, app and visibility.");

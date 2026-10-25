@@ -323,4 +323,27 @@ public sealed class WorkshopMediaTests(ITestOutputHelper output)
         Assert.Contains("\"status\":\"error\"", result.Stderr);
         Assert.DoesNotContain(SteamRequestGate.Request, result.Stderr);
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Failed_Steam_Item_Result_Is_Not_An_Approval_Refusal(bool windows)
+    {
+        var buffer = Marshal.AllocHGlobal(16384);
+        try
+        {
+            Marshal.Copy(new byte[16384], 0, buffer, 16384);
+            Marshal.WriteInt64(buffer, 123);
+            Marshal.WriteInt32(buffer, 8, 15); // AccessDenied from Steam, not a local state mismatch.
+            var error = Assert.Throws<SteamNativeFailureException>(() =>
+                SteamworksNativeClient.ReadMediaDetails(buffer, 123, Existing, windows));
+            Assert.False(SteamRequestGate.IsLocalRefusal(error, 1));
+            Assert.False(SteamRequestGate.IsLocalRefusal(error, 0));
+            Marshal.WriteInt32(buffer, 8, 1); // An OK response with wrong app is a local refusal.
+            var refusal = Assert.Throws<MediaRefusalException>(() =>
+                SteamworksNativeClient.ReadMediaDetails(buffer, 123, Existing, windows));
+            Assert.True(SteamRequestGate.IsLocalRefusal(refusal, 1));
+        }
+        finally { Marshal.FreeHGlobal(buffer); }
+    }
 }
