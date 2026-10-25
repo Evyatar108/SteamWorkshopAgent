@@ -269,7 +269,7 @@ public sealed class WorkshopPublishRequestStore(ProcessRunner processRunner)
         return result.Stdout.Trim();
     }
 
-    private static async Task WriteOwnerOnlyJsonAsync<T>(string path, T value)
+    internal static async Task WriteOwnerOnlyJsonAsync<T>(string path, T value)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read,

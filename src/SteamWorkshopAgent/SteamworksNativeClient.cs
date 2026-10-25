@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace SteamWorkshopAgent;
 
-internal sealed class SteamworksNativeClient : IDisposable
+internal sealed partial class SteamworksNativeClient : IDisposable
 {
     private readonly IntPtr library;
     private readonly SteamApiInit steamApiInit;

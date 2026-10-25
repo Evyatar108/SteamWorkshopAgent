@@ -16,6 +16,18 @@ internal static class Cli
             var services = CreateServices();
             var data = command switch
             {
+                "gallery" => await new WorkshopMediaCli().RunAsync(
+                    ulong.Parse(RequireArg(args, 1, "publishedFileId")), RequireArg(args, 2, "folder"), null,
+                    HasFlag(args, "--confirm"), GetOption(args, "--expect-digest")),
+                "visibility" => await new WorkshopMediaCli().RunAsync(
+                    ulong.Parse(RequireArg(args, 1, "publishedFileId")), null,
+                    RequireArg(args, 2, "visibility") switch
+                    {
+                        "public" => 0, "friends" => 1, "private" => 2, "unlisted" => 3,
+                        _ => throw new ArgumentException("Use public, friends, private or unlisted.")
+                    }, HasFlag(args, "--confirm"), GetOption(args, "--expect-digest")),
+                "media-query-internal" or "media-submit-internal" => await new WorkshopMediaCli().InternalAsync(
+                    command, RequireArg(args, 1, "value"), RequireArg(args, 2, "nativeLibraryPath")),
                 "status" => await services.SteamEnvironment.GetStatusAsync(args.Contains("--run-steamcmd-quit")),
                 "inspect" => await services.ModInspector.InspectAsync(RequireArg(args, 1, "repoPath")),
                 "plan" => await services.WorkshopPlanner.CreateReleasePlanAsync(
@@ -194,6 +206,8 @@ internal static class Cli
         return """
             Usage:
               SteamWorkshopAgent server
+              SteamWorkshopAgent gallery <publishedFileId> <folder> [--confirm --expect-digest DIGEST]
+              SteamWorkshopAgent visibility <publishedFileId> public|friends|private|unlisted [--confirm --expect-digest DIGEST]
               SteamWorkshopAgent status [--run-steamcmd-quit]
               SteamWorkshopAgent inspect <repoPath>
               SteamWorkshopAgent plan <repoPath> <tag> [--update-description] [--changenote TEXT]
