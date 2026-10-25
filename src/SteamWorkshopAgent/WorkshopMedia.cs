@@ -13,6 +13,7 @@ public sealed record MediaPlan(MediaState Before, int? Visibility, IReadOnlyList
     IReadOnlyList<MediaAction> Actions, string Digest);
 internal sealed record MediaRequest(MediaPlan Plan, DateTimeOffset Expires);
 internal sealed record MediaReceipt(string Stage, bool Success, bool SubmissionStarted, bool OutcomeDefinitive);
+internal sealed class MediaRefusalException(string message) : InvalidOperationException(message);
 
 // Pure planning is separate from Steam, files, claims and the CLI.
 public static class WorkshopMediaPlan
@@ -78,7 +79,7 @@ public static class WorkshopMediaPlan
 
 internal interface IWorkshopMediaClient
 {
-    Task<IReadOnlyList<AdditionalPreview>> QueryAsync(ulong item);
+    Task<MediaState> QueryAsync(ulong item);
     ulong Start(ulong item);
     bool Add(ulong handle, string path);
     bool Replace(ulong handle, uint index, string path);
@@ -103,25 +104,25 @@ internal sealed class WorkshopMediaService(WorkshopPublishRequestStore store)
         }
         var plan = request.Plan;
         if (request.Expires <= DateTimeOffset.UtcNow || steamId != plan.Before.Creator)
-            throw new InvalidOperationException("Media request expired or Steam account is not the item creator.");
-        // Query indexes and URLs again, even for visibility-only changes. Fail before StartItemUpdate.
-        var previews = await client.QueryAsync(plan.Before.ItemId);
-        if (JsonSerializer.Serialize(previews, ToolJson.Options)
-            != JsonSerializer.Serialize(plan.Before.Previews, ToolJson.Options))
-            throw new InvalidOperationException("Remote previews changed; make and approve a new plan.");
+            throw new MediaRefusalException("Media request expired or Steam account is not the item creator.");
         foreach (var file in plan.Files)
         {
             if (Path.GetFullPath(file.Path) != Path.Combine(Path.GetDirectoryName(Path.GetFullPath(requestPath))!, "snapshot", file.Name))
-                throw new InvalidOperationException("Media requests must use run-owned snapshot files.");
+                throw new MediaRefusalException("Media requests must use run-owned snapshot files.");
             PublishSnapshotPaths.EnsureNoLinks(file.Path);
             if (PublishSnapshotPaths.FileDigest(file.Path) != file.Sha256)
-                throw new InvalidOperationException("Gallery bytes changed; make and approve a new plan.");
+                throw new MediaRefusalException("Gallery bytes changed; make and approve a new plan.");
         }
         // Re-derive actions instead of trusting a hand-edited request's remove list.
         var derived = WorkshopMediaPlan.Create(plan.Before, plan.Files, plan.Visibility);
         if (derived.Digest != plan.Digest
             || JsonSerializer.Serialize(derived.Actions, ToolJson.Options) != JsonSerializer.Serialize(plan.Actions, ToolJson.Options))
-            throw new InvalidOperationException("Media plan digest is invalid.");
+            throw new MediaRefusalException("Media plan digest is invalid.");
+        // Bind approval to current visibility and creator as well as preview identities.
+        // Local validation above makes no outbound request.
+        var current = await client.QueryAsync(plan.Before.ItemId);
+        if (WorkshopMediaPlan.Create(current, plan.Files, plan.Visibility).Digest != plan.Digest)
+            throw new MediaRefusalException("Remote item state changed; make and approve a new plan.");
         var handle = client.Start(plan.Before.ItemId);
         if (handle is 0 or ulong.MaxValue)
             throw new InvalidOperationException("Invalid update handle; no submission started.");
@@ -145,6 +146,6 @@ internal sealed class WorkshopMediaService(WorkshopPublishRequestStore store)
 
     private static void Require(bool ok)
     {
-        if (!ok) throw new InvalidOperationException("Steam rejected a media setter; no submission started.");
+        if (!ok) throw new MediaRefusalException("Steam rejected a media setter; no submission started.");
     }
 }

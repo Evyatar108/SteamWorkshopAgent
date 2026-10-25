@@ -35,7 +35,7 @@ internal sealed class WorkshopMediaCli
         if (confirm && (expectedDigest is null
             || !System.Text.RegularExpressions.Regex.IsMatch(expectedDigest, "^[a-f0-9]{64}$")))
             throw new ArgumentException("Confirm requires a full lowercase --expect-digest from the approved plan.");
-        // No unthrottled fallback. Parent details and child UGC lookups each take a machine-wide turn.
+        // No unthrottled fallback. Each native outbound request needs its own grant.
         var files = folder is null ? [] : WorkshopMediaPlan.ReadFolder(folder);
         var before = await (readState?.Invoke(item) ?? ReadStateAsync(item));
         var plan = WorkshopMediaPlan.Create(before, files, visibility);
@@ -51,15 +51,7 @@ internal sealed class WorkshopMediaCli
 
     private async Task<MediaState> ReadStateAsync(ulong item)
     {
-        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("STEAM_WORKSHOP_AGENT_DETAILS_COMMAND")))
-            throw new InvalidOperationException("Set STEAM_WORKSHOP_AGENT_DETAILS_COMMAND to steam_common.py details.");
-        var reader = new WorkshopDescriptionReader(new WorkshopTargetResolver(new ModInspector(runner)));
-        var details = await reader.GetDescriptionAsync(item.ToString());
-        if (details.Result != 1 || details.ConsumerAppId != AgentPaths.RimWorldAppId
-            || !ulong.TryParse(details.Creator, out var creator) || creator == 0 || details.Visibility is null)
-            throw new InvalidOperationException("Cannot verify item creator, app and visibility.");
-        var previews = await HelperAsync<IReadOnlyList<AdditionalPreview>>(["media-query-internal", item.ToString()]);
-        return new(item, creator, details.Visibility.Value, previews);
+        return await HelperAsync<MediaState>(["media-query-internal", item.ToString()]);
     }
 
     private async Task<string> PrepareAsync(MediaPlan plan, IReadOnlyList<MediaFile> files)
@@ -124,7 +116,7 @@ internal sealed class WorkshopMediaCli
             if (!steam.UserLoggedOn() || steam.GetAppId() != AgentPaths.RimWorldAppId)
                 throw new InvalidOperationException("Steam must be online and authenticated as RimWorld.");
             if (command == "media-query-internal")
-                return await steam.QueryPreviewsAsync(ulong.Parse(value));
+                return await steam.QueryMediaStateAsync(ulong.Parse(value));
             await new WorkshopMediaService(store).ExecuteAsync(value, new NativeMediaClient(steam), steam.GetSteamId());
             var request = JsonSerializer.Deserialize<MediaRequest>(await File.ReadAllTextAsync(value), ToolJson.Options)!;
             return new WorkshopMediaOutput(request.Plan.Digest, request.Plan.Actions,

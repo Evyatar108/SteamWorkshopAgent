@@ -115,6 +115,9 @@ internal static class Cli
         catch (Exception exception)
         {
             Console.Error.WriteLine(ToolJson.Error(exception));
+            if (args[0] is "media-query-internal" or "media-submit-internal"
+                && (exception is MediaRefusalException || SteamRequestGate.Requests == 0))
+                return SteamRequestGate.RefusedExitCode;
             return 1;
         }
     }

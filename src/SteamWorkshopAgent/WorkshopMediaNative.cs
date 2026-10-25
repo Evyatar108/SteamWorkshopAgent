@@ -6,7 +6,7 @@ namespace SteamWorkshopAgent;
 internal sealed partial class SteamworksNativeClient
 {
     // Loaded only when media commands run, so existing publishing exports stay unchanged.
-    internal async Task<IReadOnlyList<AdditionalPreview>> QueryPreviewsAsync(ulong item)
+    internal async Task<MediaState> QueryMediaStateAsync(ulong item)
     {
         var self = steamApiSteamUgc();
         var query = Load<CreateDetails>("SteamAPI_ISteamUGC_CreateQueryUGCDetailsRequest")(self, [item], 1);
@@ -16,6 +16,7 @@ internal sealed partial class SteamworksNativeClient
             if (!Load<QueryBool>("SteamAPI_ISteamUGC_SetReturnAdditionalPreviews")(self, query, true)
                 || !Load<QueryAge>("SteamAPI_ISteamUGC_SetAllowCachedResponse")(self, query, 0))
                 throw new InvalidOperationException("Cannot configure media query.");
+            await SteamRequestGate.BeforeRequestAsync();
             var call = Load<QuerySend>("SteamAPI_ISteamUGC_SendQueryUGCRequest")(self, query);
             if (call == 0) throw new InvalidOperationException("Invalid UGC query call.");
             // SteamUGCQueryCompleted_t grew a next-cursor field in newer SDKs.
@@ -56,9 +57,33 @@ internal sealed partial class SteamworksNativeClient
                     throw new InvalidOperationException("Cannot read additional preview; refusing partial list.");
                 results.Add(new(i, Utf8(name), Utf8(url), type));
             }
-            return results;
+            var details = Marshal.AllocHGlobal(16384);
+            try
+            {
+                if (!Load<GetDetails>("SteamAPI_ISteamUGC_GetQueryUGCResult")(self, query, 0, details))
+                    throw new InvalidOperationException("Cannot read current item details.");
+                return ReadMediaDetails(details, item, results, OperatingSystem.IsWindows());
+            }
+            finally { Marshal.FreeHGlobal(details); }
         }
         finally { Load<QueryRelease>("SteamAPI_ISteamUGC_ReleaseQueryUGCRequest")(self, query); }
+    }
+
+    internal static MediaState ReadMediaDetails(IntPtr details, ulong expectedItem,
+        IReadOnlyList<AdditionalPreview> previews, bool windows)
+    {
+        // SteamUGCDetails_t's fixed prefix: id, result, type, creator/consumer
+        // app IDs, title[129], description[8000], owner, three timestamps,
+        // visibility. The SDK uses pack 8 on Windows and pack 4 elsewhere.
+        var ownerOffset = windows ? 8160 : 8156;
+        var item = unchecked((ulong)Marshal.ReadInt64(details));
+        var creator = unchecked((ulong)Marshal.ReadInt64(details, ownerOffset));
+        var visibility = Marshal.ReadInt32(details, ownerOffset + 20);
+        if (item != expectedItem || Marshal.ReadInt32(details, 8) != 1
+            || Marshal.ReadInt32(details, 20) != AgentPaths.RimWorldAppId
+            || creator == 0 || visibility is < 0 or > 3)
+            throw new MediaRefusalException("Cannot verify current item, creator, app and visibility.");
+        return new(item, creator, visibility, previews);
     }
 
     private static string Utf8(byte[] bytes)
@@ -124,6 +149,9 @@ internal sealed partial class SteamworksNativeClient
     private delegate uint QueryCount(IntPtr self, ulong query, uint index);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
+    private delegate bool GetDetails(IntPtr self, ulong query, uint index, IntPtr details);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)]
     private delegate bool GetPreview(IntPtr self, ulong query, uint index, uint preview,
         [Out] byte[] url, uint urlSize, [Out] byte[] name, uint nameSize, out int type);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -139,7 +167,7 @@ internal sealed partial class SteamworksNativeClient
 
 internal sealed class NativeMediaClient(SteamworksNativeClient steam) : IWorkshopMediaClient
 {
-    public Task<IReadOnlyList<AdditionalPreview>> QueryAsync(ulong item) => steam.QueryPreviewsAsync(item);
+    public Task<MediaState> QueryAsync(ulong item) => steam.QueryMediaStateAsync(item);
     public ulong Start(ulong item) => steam.StartItemUpdate(AgentPaths.RimWorldAppId, item);
     public bool Add(ulong handle, string path) => steam.AddPreview(handle, path);
     public bool Replace(ulong handle, uint index, string path) => steam.ReplacePreview(handle, index, path);
@@ -147,6 +175,7 @@ internal sealed class NativeMediaClient(SteamworksNativeClient steam) : IWorksho
     public bool Visibility(ulong handle, int visibility) => steam.SetItemVisibility(handle, visibility);
     public async Task SubmitAsync(ulong handle)
     {
+        await SteamRequestGate.BeforeRequestAsync();
         var call = steam.SubmitItemUpdate(handle, "Update Workshop page media or visibility");
         if (call == 0) throw new InvalidOperationException("Invalid submit handle; read back before retrying.");
         var deadline = DateTime.UtcNow.AddSeconds(90);

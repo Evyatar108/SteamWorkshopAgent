@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Runtime.InteropServices;
 using SteamWorkshopAgent;
 using Xunit.Abstractions;
 
@@ -17,10 +18,18 @@ public sealed class WorkshopMediaTests(ITestOutputHelper output)
     private sealed class Fake : IWorkshopMediaClient
     {
         internal IReadOnlyList<AdditionalPreview> Previews = Existing;
+        internal int CurrentVisibility = 2;
+        internal ulong Creator = 456;
+        internal ulong Item = 123;
+        internal int Queries;
         internal List<string> Calls = [];
         internal bool Reject;
         internal bool Interrupt;
-        public Task<IReadOnlyList<AdditionalPreview>> QueryAsync(ulong item) => Task.FromResult(Previews);
+        public Task<MediaState> QueryAsync(ulong item)
+        {
+            Queries++;
+            return Task.FromResult(new MediaState(Item, Creator, CurrentVisibility, Previews));
+        }
         public ulong Start(ulong item) { Calls.Add("start"); return 42; }
         public bool Add(ulong h, string p) { Calls.Add("add:" + Path.GetFileName(p)); return !Reject; }
         public bool Replace(ulong h, uint i, string p) { Calls.Add("replace:" + i); return !Reject; }
@@ -79,7 +88,7 @@ public sealed class WorkshopMediaTests(ITestOutputHelper output)
         Assert.True(File.Exists(PublishRequestClaim.ClaimPath(f.RequestPath)));
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             new WorkshopMediaService(f.Store).ExecuteAsync(f.RequestPath, fake, 456));
-        Assert.Single(fake.Calls.Where(c => c == "submit"));
+        Assert.Single(fake.Calls, c => c == "submit");
     }
 
     [Theory]
@@ -104,6 +113,7 @@ public sealed class WorkshopMediaTests(ITestOutputHelper output)
         await Assert.ThrowsAnyAsync<Exception>(() => new WorkshopMediaService(f.Store).ExecuteAsync(
             f.RequestPath, fake, change == "creator" ? 789ul : 456ul));
         Assert.Empty(fake.Calls);
+        Assert.Equal(change == "remote" ? 1 : 0, fake.Queries);
     }
 
     [Theory]
@@ -211,11 +221,11 @@ public sealed class WorkshopMediaTests(ITestOutputHelper output)
         await Assert.ThrowsAsync<InvalidOperationException>(() => cli.RunAsync(123, folder, null, true, new string('0', 64)));
         Assert.Empty(fake.Calls);
         await cli.RunAsync(123, folder, null, true, plan.Digest);
-        Assert.Single(fake.Calls.Where(c => c == "submit"));
+        Assert.Single(fake.Calls, c => c == "submit");
         // Restore source identity so replay attempts use exactly the same plan.
         File.WriteAllBytes(f.Plan.Files[0].Path, [137,80,78,71,13,10,26,10,0]);
         await Assert.ThrowsAsync<InvalidOperationException>(() => cli.RunAsync(123, folder, null, true, plan.Digest));
-        Assert.Single(fake.Calls.Where(c => c == "submit"));
+        Assert.Single(fake.Calls, c => c == "submit");
     }
 
     [Fact]
@@ -247,5 +257,70 @@ public sealed class WorkshopMediaTests(ITestOutputHelper output)
             id => throw new InvalidOperationException("Lookup must not happen"),
             path => throw new InvalidOperationException("Submission must not happen"));
         await Assert.ThrowsAsync<ArgumentException>(() => cli.RunAsync(123, null, 0, true, digest));
+    }
+
+    [Theory]
+    [InlineData(null, 0)]
+    [InlineData(0, 1)]
+    public async Task Visibility_Changed_With_Identical_Previews_Refuses_Before_Update(int? desired, int current)
+    {
+        using var f = new Fixture();
+        var plan = desired is null ? f.Plan : WorkshopMediaPlan.Create(f.Plan.Before, [], desired);
+        await f.Save(plan);
+        var fake = new Fake { CurrentVisibility = current };
+        await Assert.ThrowsAsync<MediaRefusalException>(() =>
+            new WorkshopMediaService(f.Store).ExecuteAsync(f.RequestPath, fake, 456));
+        Assert.Equal(1, fake.Queries);
+        Assert.Empty(fake.Calls);
+    }
+
+    [Theory]
+    [InlineData("item")]
+    [InlineData("creator")]
+    public async Task Fresh_Item_And_Creator_Are_Also_Digest_Bound(string changed)
+    {
+        using var f = new Fixture();
+        await f.Save();
+        var fake = new Fake();
+        if (changed == "item") fake.Item = 999;
+        else fake.Creator = 999;
+        await Assert.ThrowsAsync<MediaRefusalException>(() =>
+            new WorkshopMediaService(f.Store).ExecuteAsync(f.RequestPath, fake, 456));
+        Assert.Empty(fake.Calls);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Native_Details_Prefix_Reads_Fresh_State_With_Platform_Packing(bool windows)
+    {
+        var buffer = Marshal.AllocHGlobal(16384);
+        try
+        {
+            Marshal.Copy(new byte[16384], 0, buffer, 16384);
+            Marshal.WriteInt64(buffer, 123);
+            Marshal.WriteInt32(buffer, 8, 1);
+            Marshal.WriteInt32(buffer, 20, 294100);
+            var ownerOffset = windows ? 8160 : 8156;
+            Marshal.WriteInt64(buffer, ownerOffset, 456);
+            Marshal.WriteInt32(buffer, ownerOffset + 20, 1);
+            var state = SteamworksNativeClient.ReadMediaDetails(buffer, 123, Existing, windows);
+            Assert.Equal(new MediaState(123, 456, 1, Existing), state);
+            Marshal.WriteInt32(buffer, 20, 999);
+            Assert.Throws<MediaRefusalException>(() =>
+                SteamworksNativeClient.ReadMediaDetails(buffer, 123, Existing, windows));
+        }
+        finally { Marshal.FreeHGlobal(buffer); }
+    }
+
+    [Fact]
+    public async Task Native_Helper_PreRequest_Refusal_Uses_Distinct_Exit_Code()
+    {
+        var result = await new ProcessRunner().RunAsync("dotnet",
+            [typeof(WorkshopMediaOutput).Assembly.Location, "media-query-internal", "123",
+                Path.Combine(Path.GetTempPath(), "nonexistent-media-" + Guid.NewGuid().ToString("N"))]);
+        Assert.Equal(SteamRequestGate.RefusedExitCode, result.ExitCode);
+        Assert.Contains("\"status\":\"error\"", result.Stderr);
+        Assert.DoesNotContain(SteamRequestGate.Request, result.Stderr);
     }
 }
