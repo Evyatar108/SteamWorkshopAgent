@@ -5,7 +5,7 @@ PROJECT ?= src/SteamWorkshopAgent/SteamWorkshopAgent.csproj
 COMPANION_PROJECT ?= src/SteamWorkshopAgent.BridgeTools/SteamWorkshopAgent.BridgeTools.csproj
 COMPANION_OUTPUT ?= artifacts/BridgeTools/SteamWorkshopAgent/SteamWorkshopAgent.BridgeTools.dll
 INSTALL_DIR ?= $(HOME)/.codex/mcp-servers/steam-workshop-agent
-BRIDGE_TOOLS_DIR ?= $(HOME)/Library/Application Support/Steam/steamapps/common/RimWorld/RimWorldMac.app/BridgeTools/SteamWorkshopAgent
+BRIDGE_TOOLS_DIR ?= $(HOME)/Library/Application Support/Steam/steamapps/common/RimWorld/BridgeTools/SteamWorkshopAgent
 BINARY_NAME ?= SteamWorkshopAgent
 RID ?= osx-arm64
 

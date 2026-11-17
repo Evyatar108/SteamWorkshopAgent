@@ -246,8 +246,9 @@ public sealed class SteamWorkshopBridgeTools
     private static async Task<PublishRequest> ReadAndValidateRequestAsync(string requestPath, string requestId)
     {
         var fullPath = Path.GetFullPath(requestPath);
+        // UserProfile is the home directory on every runtime. Personal is ~/Documents on .NET, which RimWorld 1.7 runs on.
         var runsRoot = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.Personal),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             "Library", "Application Support", "SteamWorkshopAgent", "runs") + Path.DirectorySeparatorChar;
         if (!fullPath.StartsWith(runsRoot, StringComparison.Ordinal))
             throw new InvalidOperationException("Workshop publish requests must be stored under the SteamWorkshopAgent runs directory.");

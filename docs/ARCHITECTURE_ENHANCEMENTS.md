@@ -94,7 +94,7 @@ Costs:
 
 Steam may initialize a standalone helper without authenticating it as a logged-on user. In that pre-submit state, use the companion DLL in the running RimWorld process. RimWorld owns Steam initialization and callback pumping; the companion only invokes `ISteamUGC` on the main thread.
 
-The GABS profile `rimworld-workshop-headless` uses an isolated save-data directory and only Core, Harmony, and RimBridgeServer. Its isolated `Config/Prefs.xml` sets `volumeMaster` to `0`, so background publishing cannot play game audio or change the player's normal sound settings. It uses `-batchmode` without `-nographics`: live validation showed that `-nographics` connects the bridge but triggers a continuous RimWorld texture-atlas exception loop. A normal visible RimWorld launch is the final Steamworks fallback. SteamCMD is separate and manual.
+The GABS profile `rimworld-workshop-headless` uses an isolated save-data directory. It starts RimWorld 1.7 with `-NoWindow` and `-mod=brrainz.harmony;brrainz.rimbridgeserver`. The game adds Core and the installed DLCs. `-NoWindow` hides the window and keeps the graphics path. Its isolated `Config/Prefs.xml` sets `volumeMaster` to `0`, so background publishing cannot play game audio or change the player's normal sound settings. A numeric Workshop id in `-mod` is ignored when that mod is not in the local Mods folder, so the profile names Harmony by package id. A normal visible RimWorld launch is the final Steamworks fallback. SteamCMD is separate and manual.
 
 ## Read And Stats Backend
 

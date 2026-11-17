@@ -32,7 +32,8 @@ The server is aimed at the local mod-development workflow: build the mod in Rele
 - .NET 10 SDK to build from source
 - GitHub CLI `gh` for reading release notes
 - A running, online, logged-on Steam desktop client
-- RimWorld and RimBridgeServer for the in-game authenticated fallback
+- RimWorld 1.7 installed through Steam. The helper loads the Steamworks library that ships with the game
+- RimBridgeServer for the in-game authenticated fallback
 - SteamCMD only when explicitly using the emergency `steamcmd` backend
 - A RimWorld mod source repository with a Release build target that supports `RIMWORLD_MOD_DIR` for release publishing
 - For initial `new-mod` uploads, either a source repository or an already-built RimWorld mod folder with `About/About.xml`, `About/Preview.png`, and versioned `Assemblies` content

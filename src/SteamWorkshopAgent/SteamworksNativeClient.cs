@@ -31,13 +31,13 @@ internal sealed class SteamworksNativeClient : IDisposable
     public SteamworksNativeClient(string nativeLibraryPath)
     {
         library = NativeLibrary.Load(nativeLibraryPath);
-        steamApiInit = Load<SteamApiInit>("SteamAPI_Init");
+        steamApiInit = Load<SteamApiInit>("SteamAPI_Init", "SteamAPI_InitSafe");
         steamApiShutdown = Load<SteamApiShutdown>("SteamAPI_Shutdown");
         steamApiRunCallbacks = Load<SteamApiRunCallbacks>("SteamAPI_RunCallbacks");
         steamApiGetHSteamPipe = Load<SteamApiGetHSteamPipe>("SteamAPI_GetHSteamPipe");
-        steamApiSteamUser = Load<SteamApiSteamUser>("SteamAPI_SteamUser_v021");
-        steamApiSteamUtils = Load<SteamApiSteamUtils>("SteamAPI_SteamUtils_v010");
-        steamApiSteamUgc = Load<SteamApiSteamUgc>("SteamAPI_SteamUGC_v016");
+        steamApiSteamUser = Load<SteamApiSteamUser>("SteamAPI_SteamUser_v021", "SteamAPI_SteamUser_v022", "SteamAPI_SteamUser_v023");
+        steamApiSteamUtils = Load<SteamApiSteamUtils>("SteamAPI_SteamUtils_v010", "SteamAPI_SteamUtils_v011");
+        steamApiSteamUgc = Load<SteamApiSteamUgc>("SteamAPI_SteamUGC_v016", "SteamAPI_SteamUGC_v017", "SteamAPI_SteamUGC_v018", "SteamAPI_SteamUGC_v020", "SteamAPI_SteamUGC_v021");
         steamApiUserLoggedOn = Load<SteamApiUserLoggedOn>("SteamAPI_ISteamUser_BLoggedOn");
         steamApiUserGetSteamId = Load<SteamApiUserGetSteamId>("SteamAPI_ISteamUser_GetSteamID");
         steamApiUtilsGetAppId = Load<SteamApiUtilsGetAppId>("SteamAPI_ISteamUtils_GetAppID");
@@ -150,9 +150,13 @@ internal sealed class SteamworksNativeClient : IDisposable
             : result.ToString();
     }
 
-    private T Load<T>(string name) where T : Delegate
+    // Steamworks renames the init function and the interface accessors between SDK versions. The first name the library exports wins.
+    private T Load<T>(params string[] names) where T : Delegate
     {
-        return Marshal.GetDelegateForFunctionPointer<T>(NativeLibrary.GetExport(library, name));
+        foreach (var name in names)
+            if (NativeLibrary.TryGetExport(library, name, out var export))
+                return Marshal.GetDelegateForFunctionPointer<T>(export);
+        throw new EntryPointNotFoundException($"The Steamworks library exports none of: {string.Join(", ", names)}.");
     }
 
     private bool TryGetApiCallResult<T>(ulong apiCall, int callbackId, out T result, out bool ioFailure) where T : struct

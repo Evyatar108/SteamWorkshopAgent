@@ -27,6 +27,23 @@ public sealed class ModInspectorTests
     }
 
     [Fact]
+    public async Task InspectAsync_Picks_The_Source_Project_Among_Tests_Tools_And_Hidden_Probes()
+    {
+        using var fixture = TestModRepo.Create();
+        File.Move(Path.Combine(fixture.Root, "Source", "TestMod.csproj"), Path.Combine(fixture.Root, "Source", "Renamed.csproj"));
+        foreach (var extra in new[] { "Tests/Smoke/Smoke.csproj", "Tools/Meta/Meta.csproj", ".runs/probe/TestMod.csproj" })
+        {
+            var path = Path.Combine(fixture.Root, extra);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, "<Project />");
+        }
+
+        var result = await new ModInspector(new ProcessRunner()).InspectAsync(fixture.Root);
+
+        Assert.Equal(Path.Combine(fixture.Root, "Source", "Renamed.csproj"), result.ProjectPath);
+    }
+
+    [Fact]
     public async Task InspectAsync_Reads_Deployed_Mod_Folder_Without_DirectoryBuildProps()
     {
         using var fixture = TestModRepo.CreateDeployed();

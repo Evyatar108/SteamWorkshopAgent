@@ -99,8 +99,9 @@ public sealed class ModInspector(ProcessRunner processRunner)
 
     private static string ResolveProjectPath(string repoPath, string modFileName)
     {
+        // Hidden directories hold local runs and probes, not the mod's own projects.
         var candidates = Directory.EnumerateFiles(repoPath, "*.csproj", SearchOption.AllDirectories)
-            .Where(path => !path.Split(Path.DirectorySeparatorChar).Any(part => part is "bin" or "obj"))
+            .Where(path => !Path.GetRelativePath(repoPath, path).Split(Path.DirectorySeparatorChar).Any(part => part is "bin" or "obj" || part.StartsWith('.')))
             .ToList();
 
         var named = candidates.FirstOrDefault(path => Path.GetFileName(path).Equals($"{modFileName}.csproj", StringComparison.OrdinalIgnoreCase));
@@ -109,6 +110,11 @@ public sealed class ModInspector(ProcessRunner processRunner)
 
         if (candidates.Count == 1)
             return candidates[0];
+
+        // A repository with tests, tools or adapters keeps the mod project directly in Source.
+        var source = candidates.Where(path => Path.GetRelativePath(repoPath, path).Split(Path.DirectorySeparatorChar) is ["Source", _]).ToList();
+        if (source.Count == 1)
+            return source[0];
 
         throw new InvalidOperationException($"Expected one project file or {modFileName}.csproj, found {candidates.Count}: {string.Join(", ", candidates)}");
     }
